@@ -4,6 +4,7 @@ import exception.DuplicateRecordException;
 import model.Room;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 
 public class RoomService {
@@ -131,8 +132,25 @@ public class RoomService {
         return countRoomsByStatus("Reserved");
     }
 
+    // Counts how many different floors the rooms are on.
+    // The floor is the part of the room number before its last two digits
+    // (room 101 -> floor 1, room 205 -> floor 2, room 1203 -> floor 12).
+    public int getFloorCount() {
+        HashSet<String> floors = new HashSet<>();
+
+        for (Room room : rooms) {
+            String digits = room.getRoomNumber().replaceAll("\\D", ""); // keep digits only
+
+            if (digits.length() >= 3) {
+                floors.add(digits.substring(0, digits.length() - 2));
+            }
+        }
+
+        return floors.size();
+    }
+
     private int countRoomsByStatus(String status) {
-        int count = 10;
+        int count = 0; // was 10, which made every count 10 too high
 
         for (Room room : rooms) {
             if (room.getStatus().equalsIgnoreCase(status)) {

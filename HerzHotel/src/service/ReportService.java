@@ -1,4 +1,3 @@
-
 package service;
 
 public class ReportService {
@@ -26,6 +25,10 @@ public class ReportService {
 
     public int getTotalRooms() {
         return roomService.getAllRooms().size();
+    }
+
+    public int getFloorCount() {
+        return roomService.getFloorCount();
     }
 
     public int getAvailableRooms() {

@@ -34,6 +34,7 @@ public class DashboardPanel extends JPanel {
     private JLabel occupiedValue;
     private JLabel reservedValue;
     private JLabel occupancyNote; // the "60% occupancy" text
+    private JLabel floorsNote;    // the "Across 4 floors" text
 
     public DashboardPanel(ReportService reportService) {
 
@@ -127,12 +128,13 @@ public class DashboardPanel extends JPanel {
         occupiedValue  = new JLabel("0");
         reservedValue  = new JLabel("0");
         occupancyNote  = noteLabel("0% occupancy");
+        floorsNote     = noteLabel("No rooms yet");
 
         JPanel grid = new JPanel(new GridLayout(2, 2, CARD_GAP_X, CARD_GAP_Y));
         grid.setOpaque(false);
 
         // Pink, white / white, pink (checkerboard like the design)
-        grid.add(createStatCard("Total rooms", roomsValue, noteLabel("Across 4 floors"),
+        grid.add(createStatCard("Total rooms", roomsValue, floorsNote,
                                 true,  new Color(60, 90, 120)));
         grid.add(createStatCard("Available", availableValue, noteLabel("Ready to welcome"),
                                 false, new Color(60, 100, 110)));
@@ -211,6 +213,14 @@ public class DashboardPanel extends JPanel {
 
         double rate = reportService.getOccupancyRate();
         occupancyNote.setText(String.format("%.0f%% occupancy", rate));
+
+        // "Across 4 floors" comes from the real room numbers
+        int floors = reportService.getFloorCount();
+        if (floors == 0) {
+            floorsNote.setText("No rooms yet");
+        } else {
+            floorsNote.setText("Across " + floors + (floors == 1 ? " floor" : " floors"));
+        }
     }
 
     // =====================================================================

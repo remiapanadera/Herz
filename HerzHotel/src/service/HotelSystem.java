@@ -73,6 +73,11 @@ public class HotelSystem {
             }
         }
 
+        // First run: there are no saved rooms yet, so start with the default 30 rooms.
+        if (roomService.getRoomCount() == 0) {
+            addDefaultRooms();
+        }
+
         // Restore bookings without treating them as new reservations.
         for (Booking booking :
                 dataManager.getBookingStorage().getBookings()) {
@@ -101,6 +106,37 @@ public class HotelSystem {
                     "Could not restore payment: " + payment.getPaymentId(),
                     e
                 );
+            }
+        }
+    }
+
+    // Creates the hotel's 30 starting rooms across 4 floors. All of them start as "Available"
+    // because there are no guests or bookings yet.
+    private void addDefaultRooms() throws IOException {
+
+        int[] roomsPerFloor = {8, 8, 8, 6};                          // floors 1-4 = 30 rooms
+        String[] roomTypes  = {"Standard", "Standard", "Deluxe", "Suite"};
+        double[] prices     = {1500, 1500, 2500, 4000};              // price per night for each floor
+
+        for (int floor = 1; floor <= 4; floor++) {
+            for (int number = 1; number <= roomsPerFloor[floor - 1]; number++) {
+
+                // floor 1, number 5 -> "105"; floor 4, number 2 -> "402"
+                String roomNumber = String.format("%d%02d", floor, number);
+
+                try {
+                    roomService.addRoom(new Room(
+                        roomNumber,
+                        roomTypes[floor - 1],
+                        prices[floor - 1],
+                        "Available"
+                    ));
+                } catch (Exception e) {
+                    throw new IOException(
+                        "Could not create default room: " + roomNumber,
+                        e
+                    );
+                }
             }
         }
     }
