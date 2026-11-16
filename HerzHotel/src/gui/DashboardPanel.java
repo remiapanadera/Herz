@@ -1,294 +1,254 @@
 package gui;
 
 import service.ReportService;
-import util.HerzTheme;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
+import javax.swing.text.*;
 import java.awt.*;
 
 public class DashboardPanel extends JPanel {
 
+    // ---------- Colors used across the dashboard ----------
+    private static final Color PAGE_BG      = new Color(247, 245, 241); // cream background
+    private static final Color NAVY         = new Color(22, 40, 64);    // numbers
+    private static final Color BURGUNDY_HEX = new Color(74, 0, 0);      // hero text
+    private static final Color MUTED        = new Color(120, 126, 136); // small gray text
+    private static final Color CARD_WHITE   = Color.WHITE;
+    private static final Color CARD_BLUSH   = new Color(239, 222, 222); // pink cards
+    private static final Color WHITE_BORDER = new Color(232, 228, 222); // outline of white cards
+    private static final Color BLUSH_BORDER = new Color(233, 213, 213); // outline of pink cards
+
+    // ---------- Sizes (change these to resize things) ----------
+    private static final int CARD_WIDTH      = 210;  // width of each stat card
+    private static final int CARD_HEIGHT     = 128;  // height of each stat card
+    private static final int CARD_GAP_X      = 100;  // space between cards (left/right)
+    private static final int CARD_GAP_Y      = 50;   // space between cards (top/bottom)
+    private static final int HERO_TEXT_WIDTH = 820;  // starting width of the heading (it then fits the panel)
+
     private final ReportService reportService;
 
-    private JLabel guestsValue;
+    // Labels that get updated when the dashboard refreshes
     private JLabel roomsValue;
     private JLabel availableValue;
     private JLabel occupiedValue;
     private JLabel reservedValue;
-    private JLabel bookingsValue;
-    private JLabel revenueValue;
-    private JLabel occupancyValue;
-
-    private JProgressBar occupancyProgress;
+    private JLabel occupancyNote; // the "60% occupancy" text
 
     public DashboardPanel(ReportService reportService) {
 
         if (reportService == null) {
-            throw new IllegalArgumentException(
-                "Report service is required."
-            );
+            throw new IllegalArgumentException("Report service is required.");
         }
-
         this.reportService = reportService;
 
-        setLayout(new BorderLayout(20, 20));
-        setBackground(HerzTheme.CREAM);
-        setBorder(new EmptyBorder(30, 35, 30, 35));
+        // Cream page with margins around the content
+        setLayout(new BorderLayout(0, 20));
+        setBackground(PAGE_BG);
+        setBorder(new EmptyBorder(24, 24, 24, 40)); // top, left, bottom, right
 
-        add(createHeader(), BorderLayout.NORTH);
-        add(createDashboardContent(), BorderLayout.CENTER);
+        add(createHeroSection(), BorderLayout.NORTH);   // big heading
+        add(createCardsSection(), BorderLayout.CENTER); // the 4 cards
 
-        refreshDashboard();
+        refreshDashboard(); // fill in the numbers
     }
 
-    private JPanel createHeader() {
+    // =====================================================================
+    //  TOP: big heading + "Legazpi City"
+    // =====================================================================
+    private JPanel createHeroSection() {
+        JPanel hero = new JPanel(new BorderLayout());
+        hero.setOpaque(false);
 
-        JPanel header = new JPanel(new BorderLayout());
-        header.setOpaque(false);
+        String serif = fontFamily("Serif", "Playfair Display");
 
-        JPanel titlePanel = new JPanel();
-        titlePanel.setLayout(new BoxLayout(titlePanel, BoxLayout.Y_AXIS));
-        titlePanel.setOpaque(false);
+        // A text pane wraps the sentence to the available width.
+        // Its height is worked out from the real panel width so no line gets cut off.
+        JTextPane text = new JTextPane() {
+            @Override public Dimension getPreferredSize() {
+                int w = HERO_TEXT_WIDTH;                       // used before the panel has a width
+                Container parent = getParent();
+                if (parent != null && parent.getWidth() > 0) w = parent.getWidth();
+                setSize(w, Short.MAX_VALUE);
+                return new Dimension(w, super.getPreferredSize().height);
+            }
+        };
+        text.setEditable(false);
+        text.setFocusable(false);
+        text.setOpaque(false);
+        text.setBorder(null);
 
-        JLabel title = new JLabel("Hotel Dashboard");
-        title.setFont(HerzTheme.TITLE_FONT);
-        title.setForeground(HerzTheme.DARK_TEXT);
+        // "Herz Hotel" is bigger than the rest of the sentence, so it gets its own style
+        SimpleAttributeSet big = new SimpleAttributeSet();
+        StyleConstants.setFontFamily(big, serif);
+        StyleConstants.setFontSize(big, 46);
+        StyleConstants.setForeground(big, BURGUNDY_HEX);
 
-        JLabel subtitle = new JLabel(
-            "Welcome to Herz Hotel. Here's your hotel overview."
-        );
-        subtitle.setFont(HerzTheme.BODY_FONT);
-        subtitle.setForeground(HerzTheme.SECONDARY_TEXT);
+        SimpleAttributeSet normal = new SimpleAttributeSet();
+        StyleConstants.setFontFamily(normal, serif);
+        StyleConstants.setFontSize(normal, 30);
+        StyleConstants.setForeground(normal, BURGUNDY_HEX);
 
-        titlePanel.add(title);
-        titlePanel.add(Box.createVerticalStrut(6));
-        titlePanel.add(subtitle);
+        try {
+            StyledDocument doc = text.getStyledDocument();
+            doc.insertString(0, "Herz Hotel ", big);
+            doc.insertString(doc.getLength(),
+                "offers comfortable and affordable accommodations for guests "
+                + "looking for a relaxing and enjoyable stay.", normal);
 
-        JButton refreshButton = HerzTheme.createSecondaryButton("Refresh");
-        refreshButton.addActionListener(e -> refreshDashboard());
+            SimpleAttributeSet spacing = new SimpleAttributeSet(); // a little space between lines
+            StyleConstants.setLineSpacing(spacing, 0.1f);
+            doc.setParagraphAttributes(0, doc.getLength(), spacing, false);
+        } catch (BadLocationException e) {
+            // cannot happen: the text is inserted at valid positions
+        }
 
-        header.add(titlePanel, BorderLayout.WEST);
-        header.add(refreshButton, BorderLayout.EAST);
+        // Small gray "Legazpi City" on the right, under the heading
+        JLabel city = new JLabel("Legazpi City");
+        city.setFont(font("SansSerif", Font.BOLD, 12, "Inter"));
+        city.setForeground(MUTED);
 
-        return header;
+        JPanel cityRow = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
+        cityRow.setOpaque(false);
+        cityRow.setBorder(new EmptyBorder(4, 0, 0, 40)); // 4th number = distance from the right edge
+        cityRow.add(city);
+
+        hero.add(text, BorderLayout.CENTER);
+        hero.add(cityRow, BorderLayout.SOUTH);
+        return hero;
     }
 
-    private JPanel createDashboardContent() {
-
-        JPanel content = new JPanel(new BorderLayout(18, 18));
-        content.setOpaque(false);
-
-        JPanel statistics = new JPanel(new GridLayout(2, 3, 15, 15));
-        statistics.setOpaque(false);
-
-        guestsValue = new JLabel("0");
-        roomsValue = new JLabel("0");
+    // =====================================================================
+    //  CENTER: 2 x 2 grid of stat cards
+    // =====================================================================
+    private JPanel createCardsSection() {
+        roomsValue     = new JLabel("0");
         availableValue = new JLabel("0");
-        occupiedValue = new JLabel("0");
-        reservedValue = new JLabel("0");
-        bookingsValue = new JLabel("0");
+        occupiedValue  = new JLabel("0");
+        reservedValue  = new JLabel("0");
+        occupancyNote  = noteLabel("0% occupancy");
 
-        statistics.add(createStatCard(
-            "Total Guests", guestsValue, "Registered guests"
-        ));
+        JPanel grid = new JPanel(new GridLayout(2, 2, CARD_GAP_X, CARD_GAP_Y));
+        grid.setOpaque(false);
 
-        statistics.add(createStatCard(
-            "Total Rooms", roomsValue, "Hotel room inventory"
-        ));
+        // Pink, white / white, pink (checkerboard like the design)
+        grid.add(createStatCard("Total rooms", roomsValue, noteLabel("Across 4 floors"),
+                                true,  new Color(60, 90, 120)));
+        grid.add(createStatCard("Available", availableValue, noteLabel("Ready to welcome"),
+                                false, new Color(60, 100, 110)));
+        grid.add(createStatCard("Occupied", occupiedValue, occupancyNote,
+                                false, new Color(60, 90, 120)));
+        grid.add(createStatCard("Reserved", reservedValue, noteLabel("Upcoming arrivals"),
+                                true,  new Color(180, 140, 60)));
 
-        statistics.add(createStatCard(
-            "Available Rooms", availableValue, "Ready for reservations"
-        ));
-
-        statistics.add(createStatCard(
-            "Occupied Rooms", occupiedValue, "Currently occupied"
-        ));
-
-        statistics.add(createStatCard(
-            "Reserved Rooms", reservedValue, "Reserved for guests"
-        ));
-
-        statistics.add(createStatCard(
-            "Total Bookings", bookingsValue, "Recorded reservations"
-        ));
-
-        JPanel bottom = new JPanel(new GridLayout(1, 2, 15, 15));
-        bottom.setOpaque(false);
-
-        bottom.add(createRevenueCard());
-        bottom.add(createOccupancyCard());
-
-        content.add(statistics, BorderLayout.CENTER);
-        content.add(bottom, BorderLayout.SOUTH);
-
-        return content;
+        // This wrapper keeps the grid centered in the leftover space
+        JPanel wrapper = new JPanel(new GridBagLayout());
+        wrapper.setOpaque(false);
+        wrapper.add(grid);
+        return wrapper;
     }
 
-    private JPanel createStatCard(
-            String title,
-            JLabel valueLabel,
-            String description) {
+    // One stat card: title + small dash on top, big number, small note below
+    private JPanel createStatCard(String title, JLabel valueLabel, JLabel noteLabel,
+                                  boolean blush, Color dashColor) {
 
-        JPanel card = new JPanel();
+        RoundedCard card = new RoundedCard(
+            blush ? CARD_BLUSH : CARD_WHITE,
+            blush ? BLUSH_BORDER : WHITE_BORDER
+        );
         card.setLayout(new BoxLayout(card, BoxLayout.Y_AXIS));
-        card.setBackground(HerzTheme.WHITE);
+        card.setBorder(new EmptyBorder(14, 16, 14, 16)); // inner padding
+        card.setPreferredSize(new Dimension(CARD_WIDTH, CARD_HEIGHT));
 
-        card.setBorder(BorderFactory.createCompoundBorder(
-            HerzTheme.cardBorder(),
-            new EmptyBorder(20, 20, 20, 20)
-        ));
-
+        // Top row: title on the left, small dash on the right
         JLabel titleLabel = new JLabel(title);
-        titleLabel.setFont(HerzTheme.BODY_FONT);
-        titleLabel.setForeground(HerzTheme.SECONDARY_TEXT);
+        titleLabel.setFont(font("SansSerif", Font.PLAIN, 11, "Inter"));
+        titleLabel.setForeground(MUTED);
 
-        valueLabel.setFont(new Font(
-            "SansSerif",
-            Font.BOLD,
-            32
-        ));
+        JLabel dash = new JLabel("–");
+        dash.setFont(font("SansSerif", Font.BOLD, 16, "Inter"));
+        dash.setForeground(dashColor);
 
-        valueLabel.setForeground(HerzTheme.BURGUNDY);
+        JPanel topRow = new JPanel(new BorderLayout());
+        topRow.setOpaque(false);
+        topRow.add(titleLabel, BorderLayout.WEST);
+        topRow.add(dash, BorderLayout.EAST);
+        topRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 22));
+        topRow.setAlignmentX(Component.LEFT_ALIGNMENT);
 
-        JLabel descriptionLabel = new JLabel(description);
-        descriptionLabel.setFont(HerzTheme.SMALL_FONT);
-        descriptionLabel.setForeground(HerzTheme.SECONDARY_TEXT);
+        // Big number
+        valueLabel.setFont(font("SansSerif", Font.BOLD, 34, "Inter"));
+        valueLabel.setForeground(NAVY);
+        valueLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
 
-        card.add(titleLabel);
-        card.add(Box.createVerticalStrut(12));
+        noteLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+        card.add(topRow);
+        card.add(Box.createVerticalStrut(10));
         card.add(valueLabel);
         card.add(Box.createVerticalStrut(8));
-        card.add(descriptionLabel);
-
+        card.add(noteLabel);
+        card.add(Box.createVerticalGlue());
         return card;
     }
 
-    private JPanel createRevenueCard() {
-
-        JPanel card = new JPanel();
-        card.setLayout(new BoxLayout(card, BoxLayout.Y_AXIS));
-        card.setBackground(HerzTheme.WHITE);
-
-        card.setBorder(BorderFactory.createCompoundBorder(
-            HerzTheme.cardBorder(),
-            new EmptyBorder(20, 22, 20, 22)
-        ));
-
-        JLabel title = new JLabel("Recorded Payment Revenue");
-        title.setFont(HerzTheme.HEADING_FONT);
-        title.setForeground(HerzTheme.DARK_TEXT);
-
-        revenueValue = new JLabel("₱0.00");
-        revenueValue.setFont(new Font(
-            "SansSerif",
-            Font.BOLD,
-            28
-        ));
-        revenueValue.setForeground(HerzTheme.BURGUNDY);
-
-        JLabel description = new JLabel(
-            "Total payments marked as paid"
-        );
-        description.setFont(HerzTheme.SMALL_FONT);
-        description.setForeground(HerzTheme.SECONDARY_TEXT);
-
-        card.add(title);
-        card.add(Box.createVerticalStrut(15));
-        card.add(revenueValue);
-        card.add(Box.createVerticalStrut(8));
-        card.add(description);
-
-        return card;
+    // Small gray text used under the numbers
+    private JLabel noteLabel(String text) {
+        JLabel label = new JLabel(text);
+        label.setFont(font("SansSerif", Font.PLAIN, 10, "Inter"));
+        label.setForeground(MUTED);
+        return label;
     }
 
-    private JPanel createOccupancyCard() {
-
-        JPanel card = new JPanel();
-        card.setLayout(new BoxLayout(card, BoxLayout.Y_AXIS));
-        card.setBackground(HerzTheme.WHITE);
-
-        card.setBorder(BorderFactory.createCompoundBorder(
-            HerzTheme.cardBorder(),
-            new EmptyBorder(20, 22, 20, 22)
-        ));
-
-        JLabel title = new JLabel("Room Occupancy Rate");
-        title.setFont(HerzTheme.HEADING_FONT);
-        title.setForeground(HerzTheme.DARK_TEXT);
-
-        occupancyValue = new JLabel("0.0%");
-        occupancyValue.setFont(new Font(
-            "SansSerif",
-            Font.BOLD,
-            28
-        ));
-        occupancyValue.setForeground(HerzTheme.BURGUNDY);
-
-        occupancyProgress = new JProgressBar(0, 100);
-        occupancyProgress.setStringPainted(true);
-        occupancyProgress.setForeground(HerzTheme.BURGUNDY);
-        occupancyProgress.setBackground(HerzTheme.BLUSH);
-        occupancyProgress.setPreferredSize(new Dimension(300, 18));
-
-        JLabel description = new JLabel(
-            "Percentage of rooms currently occupied"
-        );
-        description.setFont(HerzTheme.SMALL_FONT);
-        description.setForeground(HerzTheme.SECONDARY_TEXT);
-
-        card.add(title);
-        card.add(Box.createVerticalStrut(15));
-        card.add(occupancyValue);
-        card.add(Box.createVerticalStrut(12));
-        card.add(occupancyProgress);
-        card.add(Box.createVerticalStrut(10));
-        card.add(description);
-
-        return card;
-    }
-
+    // =====================================================================
+    //  DATA: call this to update the numbers (keeps working like before)
+    // =====================================================================
     public void refreshDashboard() {
-
-        guestsValue.setText(
-            String.valueOf(reportService.getTotalGuests())
-        );
-
-        roomsValue.setText(
-            String.valueOf(reportService.getTotalRooms())
-        );
-
-        availableValue.setText(
-            String.valueOf(reportService.getAvailableRooms())
-        );
-
-        occupiedValue.setText(
-            String.valueOf(reportService.getOccupiedRooms())
-        );
-
-        reservedValue.setText(
-            String.valueOf(reportService.getReservedRooms())
-        );
-
-        bookingsValue.setText(
-            String.valueOf(reportService.getTotalBookings())
-        );
-
-        revenueValue.setText(
-            String.format(
-                "₱%,.2f",
-                reportService.getTotalRevenue()
-            )
-        );
+        roomsValue.setText(String.valueOf(reportService.getTotalRooms()));
+        availableValue.setText(String.valueOf(reportService.getAvailableRooms()));
+        occupiedValue.setText(String.valueOf(reportService.getOccupiedRooms()));
+        reservedValue.setText(String.valueOf(reportService.getReservedRooms()));
 
         double rate = reportService.getOccupancyRate();
+        occupancyNote.setText(String.format("%.0f%% occupancy", rate));
+    }
 
-        occupancyValue.setText(
-            String.format("%.1f%%", rate)
-        );
+    // =====================================================================
+    //  HELPERS
+    // =====================================================================
 
-        occupancyProgress.setValue(
-            (int) Math.round(rate)
-        );
+    // Uses the nice font if it's installed, otherwise a built-in one
+    private static Font font(String fallback, int style, int size, String preferred) {
+        return new Font(fontFamily(fallback, preferred), style, size);
+    }
+
+    // Returns the preferred font family name if installed, otherwise the fallback name
+    private static String fontFamily(String fallback, String preferred) {
+        for (String name : GraphicsEnvironment.getLocalGraphicsEnvironment().getAvailableFontFamilyNames()) {
+            if (name.equalsIgnoreCase(preferred)) return preferred;
+        }
+        return fallback;
+    }
+
+    // A panel with rounded corners, a fill color, and a thin outline
+    private static class RoundedCard extends JPanel {
+        private final Color fill, stroke;
+
+        RoundedCard(Color fill, Color stroke) {
+            this.fill = fill;
+            this.stroke = stroke;
+            setOpaque(false);
+        }
+
+        @Override protected void paintComponent(Graphics g) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            g2.setColor(fill);
+            g2.fillRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 10, 10);
+            g2.setColor(stroke);
+            g2.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 10, 10);
+            g2.dispose();
+            super.paintComponent(g);
+        }
     }
 }

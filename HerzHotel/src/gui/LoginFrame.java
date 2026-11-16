@@ -477,11 +477,11 @@ public class LoginFrame extends JFrame {
         String password = new String(passwordField.getPassword());
 
         // Temporary demonstration credentials.
-        if (username.equals("admin") && password.equals("admin123")) {
+        if (username.equals("Trisha Dajac") && password.equals("admin123")) {
             JOptionPane.showMessageDialog(this, "Welcome to Herz Hotel!",
                 "Login Successful", JOptionPane.INFORMATION_MESSAGE);
 
-            MainFrame mainFrame = new MainFrame(); // open the main window
+            MainFrame mainFrame = new MainFrame(username); // open the main window
             mainFrame.setVisible(true);
             dispose();                              // close the login window
         } else {
