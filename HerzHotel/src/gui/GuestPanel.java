@@ -826,7 +826,7 @@ public class GuestPanel extends JPanel {
     }
 
     // =====================================================================
-    //  Philippine mobile number rules: +63 9XX XXX XXXX (12 digits total)
+    //  Philippine mobile number rules: +63 9xx xxx xxxx (12 digits total)
     // =====================================================================
 
     private static final int PH_DIGITS = 12;
