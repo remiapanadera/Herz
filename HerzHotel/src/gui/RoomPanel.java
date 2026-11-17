@@ -14,10 +14,16 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.geom.RoundRectangle2D;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 
 import static gui.UiKit.*;
 
+/**
+ * Screen 4: Room Management.
+ * Categorizes rooms by room type (All types, Standard, Deluxe, Suite) via top category tabs
+ * with live counts, combined with search, status filtering, and room editing.
+ */
 public class RoomPanel extends JPanel {
 
     private static final int PAGE_SIZE = 8;
@@ -30,7 +36,6 @@ public class RoomPanel extends JPanel {
     private JTable roomTable;
     private DefaultTableModel tableModel;
     private JTextField searchField;
-    private JComboBox<String> typeFilter;
     private JComboBox<String> statusFilter;
     private JLabel countLabel;
     private JLabel showingLabel;
@@ -38,10 +43,10 @@ public class RoomPanel extends JPanel {
     private JButton prevButton;
     private JButton nextButton;
 
-    private final List<TabLabel> tabs = new ArrayList<>();
+    private final List<TabLabel> typeTabs = new ArrayList<>();
     private final List<Room> filtered = new ArrayList<>();
+    private String selectedTypeCategory = "All types";
     private int currentPage = 0;
-    private boolean syncing = false;
 
     public RoomPanel(RoomService roomService) {
 
@@ -71,12 +76,20 @@ public class RoomPanel extends JPanel {
         return digits.length() >= 3 ? digits.substring(0, digits.length() - 2) : "1";
     }
 
-    /** Standard 2 guests, Deluxe 3, Suite 4. */
+    /** Occupant capacity per room type: Standard = 2, Deluxe = 3, Suite = 4. */
     static int capacityFor(String roomType) {
         if (roomType == null) return 2;
         if (roomType.equalsIgnoreCase("Suite")) return 4;
         if (roomType.equalsIgnoreCase("Deluxe")) return 3;
         return 2;
+    }
+
+    private static int typeOrder(String roomType) {
+        if (roomType == null) return 99;
+        if (roomType.equalsIgnoreCase("Standard")) return 1;
+        if (roomType.equalsIgnoreCase("Deluxe")) return 2;
+        if (roomType.equalsIgnoreCase("Suite")) return 3;
+        return 4;
     }
 
     // =====================================================================
@@ -101,23 +114,13 @@ public class RoomPanel extends JPanel {
         title.setFont(new Font("Serif", Font.PLAIN, 34));
         title.setForeground(INK);
         title.setAlignmentX(LEFT_ALIGNMENT);
-        title.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 0));
 
         titleBox.add(crumb);
         titleBox.add(Box.createVerticalStrut(14));
         titleBox.add(title);
         titleBox.add(Box.createVerticalStrut(10));
 
-        JButton addButton = button("+ Add room", ButtonKind.PRIMARY);
-        addButton.setPreferredSize(new Dimension(112, 38));
-        addButton.addActionListener(e -> addRoom());
-
-        JPanel buttonWrap = new JPanel(new GridBagLayout());
-        buttonWrap.setOpaque(false);
-        buttonWrap.add(addButton);
-
         header.add(titleBox, BorderLayout.WEST);
-        header.add(buttonWrap, BorderLayout.EAST);
 
         return header;
     }
@@ -146,7 +149,7 @@ public class RoomPanel extends JPanel {
         titleRow.add(cardTitle, BorderLayout.WEST);
         titleRow.add(countLabel, BorderLayout.EAST);
 
-        // --- Search + filters ---
+        // --- Search + status filter ---
         searchField = new PlaceholderField("Search room number or type...");
         searchField.setPreferredSize(new Dimension(300, 36));
         searchField.setBackground(FIELD_BG);
@@ -158,26 +161,14 @@ public class RoomPanel extends JPanel {
         searchField.addActionListener(e -> resetAndRefresh());
         onChange(searchField, this::resetAndRefresh);
 
-        typeFilter = new JComboBox<>(new String[] {
-            "All types", "Standard", "Deluxe", "Suite"
-        });
-        styleFilter(typeFilter, 140);
-        typeFilter.addActionListener(e -> resetAndRefresh());
-
         statusFilter = new JComboBox<>(new String[] {
             "All statuses", "Available", "Occupied", "Reserved", "Maintenance"
         });
         styleFilter(statusFilter, 150);
-        statusFilter.addActionListener(e -> {
-            if (!syncing) {
-                updateTabsFromFilter();
-                resetAndRefresh();
-            }
-        });
+        statusFilter.addActionListener(e -> resetAndRefresh());
 
         JPanel filters = new JPanel(new FlowLayout(FlowLayout.RIGHT, 12, 0));
         filters.setOpaque(false);
-        filters.add(typeFilter);
         filters.add(statusFilter);
 
         JPanel searchRow = new JPanel(new BorderLayout(12, 0));
@@ -185,23 +176,23 @@ public class RoomPanel extends JPanel {
         searchRow.add(searchField, BorderLayout.CENTER);
         searchRow.add(filters, BorderLayout.EAST);
 
-        // --- Tabs ---
+        // --- Room Type Category Tabs ---
         JPanel tabRow = new JPanel(new GridLayout(1, 4));
         tabRow.setOpaque(false);
 
-        String[] tabNames = {"All rooms", "Available", "Occupied", "Reserved"};
-        for (String name : tabNames) {
+        String[] categoryNames = {"All types", "Standard", "Deluxe", "Suite"};
+        for (String name : categoryNames) {
             TabLabel tab = new TabLabel(name);
-            tabs.add(tab);
+            typeTabs.add(tab);
             tabRow.add(tab);
             tab.addMouseListener(new MouseAdapter() {
                 @Override
                 public void mouseClicked(MouseEvent e) {
-                    selectTab(name);
+                    selectCategoryTab(name);
                 }
             });
         }
-        tabs.get(0).setSelected(true);
+        typeTabs.get(0).setSelected(true);
 
         JPanel top = new JPanel();
         top.setLayout(new BoxLayout(top, BoxLayout.Y_AXIS));
@@ -263,6 +254,7 @@ public class RoomPanel extends JPanel {
         bold.setFont(new Font("SansSerif", Font.BOLD, 11));
         roomTable.getColumnModel().getColumn(0).setCellRenderer(bold);
 
+        roomTable.getColumnModel().getColumn(1).setCellRenderer(new TypeBadgeRenderer());
         roomTable.getColumnModel().getColumn(4).setCellRenderer(new StatusRenderer());
 
         JTableHeader th = roomTable.getTableHeader();
@@ -337,26 +329,13 @@ public class RoomPanel extends JPanel {
         pager.add(nextButton);
 
         JButton editButton = button("Edit", ButtonKind.OUTLINE);
-        editButton.setPreferredSize(new Dimension(70, 34));
+        editButton.setPreferredSize(new Dimension(80, 34));
         editButton.addActionListener(e -> editRoom());
-
-        JButton deleteButton = button("Delete", ButtonKind.DANGER);
-        deleteButton.setPreferredSize(new Dimension(80, 34));
-        deleteButton.addActionListener(e -> {
-            Room selected = getSelectedRoom();
-            if (selected == null) {
-                showError("Please select a room to delete.");
-                return;
-            }
-            deleteRoom(selected);
-        });
 
         JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
         actions.setOpaque(false);
         actions.add(editButton);
-        actions.add(deleteButton);
 
-        // Keep the pager centered: left and right sides get the same width
         JPanel leftSide = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 8));
         leftSide.setOpaque(false);
         leftSide.setPreferredSize(new Dimension(200, 34));
@@ -372,50 +351,20 @@ public class RoomPanel extends JPanel {
     }
 
     // =====================================================================
-    //  Tabs <-> status filter
+    //  Room Type Category Tabs
     // =====================================================================
 
-    private void selectTab(String name) {
-        syncing = true;
-        statusFilter.setSelectedItem(name.equals("All rooms") ? "All statuses" : name);
-        syncing = false;
-        updateTabsFromFilter();
-        resetAndRefresh();
-    }
-
-    private void updateTabsFromFilter() {
-        String selected = statusFilter.getSelectedItem().toString();
-        String tabName = selected.equals("All statuses") ? "All rooms" : selected;
-
-        for (TabLabel tab : tabs) {
-            tab.setSelected(tab.getName().equals(tabName));
+    private void selectCategoryTab(String name) {
+        selectedTypeCategory = name;
+        for (TabLabel tab : typeTabs) {
+            tab.setSelected(tab.getName().equals(name));
         }
+        resetAndRefresh();
     }
 
     // =====================================================================
     //  Actions
     // =====================================================================
-
-    private void addRoom() {
-
-        RoomDialog dialog = new RoomDialog(null);
-        dialog.setVisible(true);
-
-        Room room = dialog.getResult();
-
-        if (room == null) {
-            return;
-        }
-
-        try {
-            roomService.addRoom(room);
-            refreshTable();
-            JOptionPane.showMessageDialog(this, "Room added successfully.");
-
-        } catch (DuplicateRecordException | IllegalArgumentException e) {
-            showError(e.getMessage());
-        }
-    }
 
     private void editRoom() {
 
@@ -429,13 +378,7 @@ public class RoomPanel extends JPanel {
         RoomDialog dialog = new RoomDialog(selected);
         dialog.setVisible(true);
 
-        if (dialog.isDeleteRequested()) {
-            deleteRoom(selected);
-            return;
-        }
-
         Room updated = dialog.getResult();
-
         if (updated == null) {
             return;
         }
@@ -450,50 +393,12 @@ public class RoomPanel extends JPanel {
         }
     }
 
-    private void deleteRoom(Room room) {
-
-        String status = room.getStatus();
-
-        if (status.equalsIgnoreCase("Occupied") || status.equalsIgnoreCase("Reserved")) {
-            showError("Room " + room.getRoomNumber()
-                + " is " + status.toLowerCase()
-                + " and cannot be deleted.");
-            return;
-        }
-
-        boolean ok = confirm(
-            this,
-            "CONFIRM DELETION",
-            "Delete room " + room.getRoomNumber() + "?",
-            "This room will be permanently removed from the inventory.",
-            "This action cannot be undone.",
-            "Delete room"
-        );
-
-        if (!ok) {
-            return;
-        }
-
-        try {
-            roomService.deleteRoom(room.getRoomNumber());
-            refreshTable();
-            JOptionPane.showMessageDialog(this, "Room deleted successfully.");
-
-        } catch (IllegalArgumentException e) {
-            showError(e.getMessage());
-        }
-    }
-
     private Room getSelectedRoom() {
-
         int row = roomTable.getSelectedRow();
-
         if (row == -1) {
             return null;
         }
-
         int index = currentPage * PAGE_SIZE + roomTable.convertRowIndexToModel(row);
-
         return index < filtered.size() ? filtered.get(index) : null;
     }
 
@@ -517,22 +422,29 @@ public class RoomPanel extends JPanel {
         }
 
         String keyword = searchField.getText().trim();
-        String type = typeFilter.getSelectedItem().toString();
         String status = statusFilter.getSelectedItem().toString();
 
         filtered.clear();
 
         for (Room room : roomService.searchRooms(keyword)) {
 
-            if (!type.equals("All types") && !room.getRoomType().equalsIgnoreCase(type)) {
+            if (!selectedTypeCategory.equals("All types")
+                    && !room.getRoomType().equalsIgnoreCase(selectedTypeCategory)) {
                 continue;
             }
-            if (!status.equals("All statuses") && !room.getStatus().equalsIgnoreCase(status)) {
+            if (!status.equals("All statuses")
+                    && !room.getStatus().equalsIgnoreCase(status)) {
                 continue;
             }
 
             filtered.add(room);
         }
+
+        // Categorized order: Standard -> Deluxe -> Suite, then sorted by room number
+        filtered.sort(
+            Comparator.comparingInt((Room r) -> typeOrder(r.getRoomType()))
+                      .thenComparing(Room::getRoomNumber)
+        );
 
         if (currentPage >= pageCount()) {
             currentPage = pageCount() - 1;
@@ -551,18 +463,32 @@ public class RoomPanel extends JPanel {
                 floorOf(r),
                 String.format("%,.0f", r.getPricePerNight()),
                 r.getStatus(),
-                capacityFor(r.getRoomType()) + " guests"
+                capacityFor(r.getRoomType()) + " occupants"
             });
         }
 
-        int total = roomService.getRoomCount();
+        List<Room> allRooms = roomService.getAllRooms();
+        int total = allRooms.size();
+        int standardCount = 0;
+        int deluxeCount = 0;
+        int suiteCount = 0;
+
+        for (Room r : allRooms) {
+            if ("Standard".equalsIgnoreCase(r.getRoomType())) {
+                standardCount++;
+            } else if ("Deluxe".equalsIgnoreCase(r.getRoomType())) {
+                deluxeCount++;
+            } else if ("Suite".equalsIgnoreCase(r.getRoomType())) {
+                suiteCount++;
+            }
+        }
 
         countLabel.setText(total + (total == 1 ? " room" : " rooms"));
 
-        tabs.get(0).setCount(total);
-        tabs.get(1).setCount(roomService.getAvailableRoomCount());
-        tabs.get(2).setCount(roomService.getOccupiedRoomCount());
-        tabs.get(3).setCount(roomService.getReservedRoomCount());
+        typeTabs.get(0).setCount(total);
+        typeTabs.get(1).setCount(standardCount);
+        typeTabs.get(2).setCount(deluxeCount);
+        typeTabs.get(3).setCount(suiteCount);
 
         int shown = filtered.size();
 
@@ -579,12 +505,10 @@ public class RoomPanel extends JPanel {
     }
 
     // =====================================================================
-    //  Add / Edit room popup
+    //  Edit room popup
     // =====================================================================
 
     private class RoomDialog extends JDialog {
-
-        private final boolean editing;
 
         private final JTextField numberField = formField("e.g. 201");
         private final JComboBox<String> typeBox = new JComboBox<>(TYPES);
@@ -593,25 +517,20 @@ public class RoomPanel extends JPanel {
         private final JLabel errorLabel = new JLabel(" ");
 
         private Room result;
-        private boolean deleteRequested;
 
         RoomDialog(Room existing) {
             super(SwingUtilities.getWindowAncestor(RoomPanel.this),
-                  existing == null ? "Add a room" : "Edit room",
+                  "Edit room",
                   ModalityType.APPLICATION_MODAL);
-
-            this.editing = existing != null;
 
             setUndecorated(true);
             styleCombo(typeBox);
             styleCombo(statusBox);
 
-            if (editing) {
-                numberField.setText(existing.getRoomNumber());
-                typeBox.setSelectedItem(existing.getRoomType());
-                priceField.setText(trimPrice(existing.getPricePerNight()));
-                statusBox.setSelectedItem(existing.getStatus());
-            }
+            numberField.setText(existing.getRoomNumber());
+            typeBox.setSelectedItem(existing.getRoomType());
+            priceField.setText(trimPrice(existing.getPricePerNight()));
+            statusBox.setSelectedItem(existing.getStatus());
 
             JPanel root = new JPanel();
             root.setLayout(new BoxLayout(root, BoxLayout.Y_AXIS));
@@ -621,13 +540,11 @@ public class RoomPanel extends JPanel {
                 BorderFactory.createEmptyBorder(22, 22, 20, 22)
             ));
 
-            JLabel title = new JLabel(editing ? "Edit room" : "Add a room");
+            JLabel title = new JLabel("Edit room");
             title.setFont(new Font("SansSerif", Font.BOLD, 20));
             title.setForeground(INK);
 
-            JLabel subtitle = new JLabel(editing
-                ? "Update this room's details."
-                : "Add a new room to the inventory.");
+            JLabel subtitle = new JLabel("Update this room's details.");
             subtitle.setFont(new Font("SansSerif", Font.PLAIN, 12));
             subtitle.setForeground(MUTED);
 
@@ -662,45 +579,24 @@ public class RoomPanel extends JPanel {
             JPanel note = new JPanel(new BorderLayout());
             note.setBackground(FIELD_BG);
             note.setBorder(BorderFactory.createEmptyBorder(14, 12, 14, 12));
-            JLabel noteText = new JLabel("Floor and guest capacity are set from the room number and type.");
+            JLabel noteText = new JLabel("Floor and occupant capacity are set from the room number and type.");
             noteText.setFont(new Font("SansSerif", Font.PLAIN, 10));
             noteText.setForeground(MUTED);
             note.add(noteText, BorderLayout.WEST);
             root.add(left(note));
             root.add(Box.createVerticalStrut(18));
 
-            if (editing) {
-                JButton delete = button("Delete room", ButtonKind.DANGER);
-                delete.setPreferredSize(new Dimension(100, 38));
-                delete.addActionListener(e -> {
-                    deleteRequested = true;
-                    dispose();
-                });
-                JPanel deleteRow = new JPanel(new BorderLayout());
-                deleteRow.setOpaque(false);
-                deleteRow.add(delete, BorderLayout.CENTER);
-                root.add(left(deleteRow));
-                root.add(Box.createVerticalStrut(10));
-            }
-
             JButton cancel = button("Cancel", ButtonKind.OUTLINE);
             cancel.setPreferredSize(new Dimension(110, 40));
             cancel.addActionListener(e -> dispose());
 
-            JButton save = button(editing ? "Save changes" : "Add room", ButtonKind.PRIMARY);
-            save.setPreferredSize(new Dimension(editing ? 220 : 130, 40));
+            JButton save = button("Save changes", ButtonKind.PRIMARY);
+            save.setPreferredSize(new Dimension(220, 40));
             save.addActionListener(e -> submit());
 
-            JPanel buttons;
-            if (editing) {
-                buttons = new JPanel(new BorderLayout(12, 0));
-                buttons.add(cancel, BorderLayout.WEST);
-                buttons.add(save, BorderLayout.CENTER);
-            } else {
-                buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 12, 0));
-                buttons.add(cancel);
-                buttons.add(save);
-            }
+            JPanel buttons = new JPanel(new BorderLayout(12, 0));
+            buttons.add(cancel, BorderLayout.WEST);
+            buttons.add(save, BorderLayout.CENTER);
             buttons.setOpaque(false);
             root.add(left(buttons));
 
@@ -712,7 +608,6 @@ public class RoomPanel extends JPanel {
         }
 
         private void submit() {
-
             double price;
 
             try {
@@ -730,7 +625,6 @@ public class RoomPanel extends JPanel {
                     statusBox.getSelectedItem().toString()
                 );
                 dispose();
-
             } catch (IllegalArgumentException e) {
                 result = null;
                 errorLabel.setText(e.getMessage());
@@ -738,8 +632,6 @@ public class RoomPanel extends JPanel {
         }
 
         Room getResult() { return result; }
-
-        boolean isDeleteRequested() { return deleteRequested; }
     }
 
     private static String trimPrice(double price) {
@@ -749,8 +641,30 @@ public class RoomPanel extends JPanel {
     }
 
     // =====================================================================
-    //  Status pill + tab label
+    //  Room Type Badge + Status Pill + Tab Label
     // =====================================================================
+
+    private static class TypeBadgeRenderer extends DefaultTableCellRenderer {
+        @Override
+        public Component getTableCellRendererComponent(
+                JTable table, Object value, boolean selected,
+                boolean focus, int row, int column) {
+            JLabel l = (JLabel) super.getTableCellRendererComponent(
+                table, value, selected, focus, row, column
+            );
+            String type = value == null ? "" : value.toString();
+            l.setHorizontalAlignment(SwingConstants.CENTER);
+            l.setFont(new Font("SansSerif", Font.BOLD, 11));
+            if ("Suite".equalsIgnoreCase(type)) {
+                l.setForeground(BURGUNDY);
+            } else if ("Deluxe".equalsIgnoreCase(type)) {
+                l.setForeground(GOLD);
+            } else {
+                l.setForeground(INK);
+            }
+            return l;
+        }
+    }
 
     private static class StatusRenderer implements TableCellRenderer {
 
@@ -825,6 +739,7 @@ public class RoomPanel extends JPanel {
         void setSelected(boolean selected) {
             this.selected = selected;
             setForeground(selected ? INK : MUTED);
+            setFont(new Font("SansSerif", selected ? Font.BOLD : Font.PLAIN, 11));
             repaint();
         }
 

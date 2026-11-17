@@ -136,7 +136,7 @@ public class MainFrame extends JFrame {
         showPage("Dashboard");
     }
 
-    private void initializePanels() {
+   private void initializePanels() {
 
         dashboardPanel = new DashboardPanel(
             hotelSystem.getReportService()
@@ -144,7 +144,8 @@ public class MainFrame extends JFrame {
 
         guestPanel = new GuestPanel(
             hotelSystem.getGuestService(),
-            hotelSystem.getBookingService()
+            hotelSystem.getBookingService(),
+            hotelSystem.getPaymentService()
         );
 
         roomPanel = new RoomPanel(
@@ -161,7 +162,7 @@ public class MainFrame extends JFrame {
         // The receipt's "Received by" line shows the logged-in user
         bookingPanel.setReceivedBy(username);
     }
-
+    
     // =====================================================================
     //  SIDEBAR
     // =====================================================================

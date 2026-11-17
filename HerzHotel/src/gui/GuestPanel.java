@@ -4,8 +4,10 @@ import exception.DuplicateRecordException;
 import exception.InvalidBookingException;
 import model.Booking;
 import model.Guest;
+import model.Payment;
 import service.BookingService;
 import service.GuestService;
+import service.PaymentService;
 import util.HerzTheme;
 
 import javax.swing.*;
@@ -13,6 +15,10 @@ import javax.swing.border.AbstractBorder;
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
 import javax.swing.table.JTableHeader;
+import javax.swing.text.AbstractDocument;
+import javax.swing.text.AttributeSet;
+import javax.swing.text.BadLocationException;
+import javax.swing.text.DocumentFilter;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -24,6 +30,12 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
+/**
+ * Screen 3: Guest Management.
+ * - Displays guest profiles paired with their active bookings (Room column first).
+ * - Cancelling a booking releases the room, records the PHP 500 cancellation fee in
+ *   PaymentService, and hides the cancelled booking/guest row from Guest Management.
+ */
 public class GuestPanel extends JPanel {
 
     // ---- Palette taken from the design ----
@@ -42,28 +54,33 @@ public class GuestPanel extends JPanel {
     private static final Color DANGER       = new Color(0xA5, 0x3B, 0x33);
     private static final Color DANGER_LINE  = new Color(0xEB, 0xCF, 0xC9);
 
+    private static final double CANCELLATION_FEE = 500.0;
     private static final int PAGE_SIZE = 8;
 
     private static final DateTimeFormatter DAY_FMT  = DateTimeFormatter.ofPattern("d MMM yyyy", Locale.ENGLISH);
     private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("h:mm a", Locale.ENGLISH);
-    private static final DateTimeFormatter STAMP_FMT = DateTimeFormatter.ofPattern("d MMM, h:mm a", Locale.ENGLISH);
-    private static final String MUTED_HEX = "#6B7783";
+
+    // High-contrast HTML badge colors for check-in / check-out statuses
+    private static final String STATUS_PENDING_HEX = "#B45309"; // Bold warm amber
+    private static final String STATUS_DONE_HEX    = "#1F6E43"; // Bold emerald green
 
     private final GuestService guestService;
     private final BookingService bookingService;
+    private final PaymentService paymentService;
 
     private JTable guestTable;
     private DefaultTableModel tableModel;
     private JTextField searchField;
-    private JComboBox<String> filterBox;
     private JLabel countLabel;
     private JLabel showingLabel;
     private JButton checkInButton;
+    private JButton checkOutButton;
+    private JButton cancelBookingButton;
     private JButton prevButton;
     private JButton nextButton;
     private JLabel pageLabel;
 
-    // One row per guest + booking (a guest with no active booking gets a single row)
+    // Pairs each guest with their booking so multi-stay guests show each stay
     private final List<GuestRow> filtered = new ArrayList<>();
     private int currentPage = 0;
 
@@ -77,14 +94,20 @@ public class GuestPanel extends JPanel {
         }
     }
 
-    public GuestPanel(GuestService guestService, BookingService bookingService) {
+    public GuestPanel(
+            GuestService guestService,
+            BookingService bookingService,
+            PaymentService paymentService) {
 
-        if (guestService == null || bookingService == null) {
-            throw new IllegalArgumentException("GuestService and BookingService are required.");
+        if (guestService == null || bookingService == null || paymentService == null) {
+            throw new IllegalArgumentException(
+                "GuestService, BookingService, and PaymentService are required."
+            );
         }
 
         this.guestService = guestService;
         this.bookingService = bookingService;
+        this.paymentService = paymentService;
 
         setLayout(new BorderLayout(0, 14));
         setBackground(PAGE_BG);
@@ -95,9 +118,8 @@ public class GuestPanel extends JPanel {
 
         refreshTable();
 
-        // The 2:00 PM check-in time can arrive while this page is open,
-        // so the Check in button is re-evaluated every 30 seconds.
-        new javax.swing.Timer(30_000, e -> updateCheckInButton()).start();
+        // Re-evaluates check-in eligibility periodically in case 2:00 PM passes while open
+        new javax.swing.Timer(30_000, e -> updateActionButtons()).start();
     }
 
     // =====================================================================
@@ -153,12 +175,12 @@ public class GuestPanel extends JPanel {
         titleRow.add(cardTitle, BorderLayout.WEST);
         titleRow.add(countLabel, BorderLayout.EAST);
 
-        // --- Search row ---
+        // --- Search + action buttons row ---
         JPanel searchRow = new JPanel(new BorderLayout(12, 0));
         searchRow.setOpaque(false);
 
-        searchField = new PlaceholderField("Search by name, email, phone or room...");
-        searchField.setPreferredSize(new Dimension(300, 36));
+        searchField = new PlaceholderField("Search by room, name, phone, or address...");
+        searchField.setPreferredSize(new Dimension(260, 36));
         searchField.setBackground(FIELD_BG);
         searchField.setBorder(BorderFactory.createCompoundBorder(
             new RoundedBorder(FIELD_BG, 6, 1),
@@ -168,28 +190,28 @@ public class GuestPanel extends JPanel {
         searchField.addActionListener(e -> resetAndRefresh());
         searchField.getDocument().addDocumentListener(new SimpleDocListener(this::resetAndRefresh));
 
-        filterBox = new JComboBox<>(new String[] {
-            "All guests", "Missing email", "Missing phone"
-        });
-        filterBox.setFont(new Font("SansSerif", Font.BOLD, 11));
-        filterBox.setBackground(Color.WHITE);
-        filterBox.setPreferredSize(new Dimension(190, 36));
-        filterBox.addActionListener(e -> resetAndRefresh());
-
         JButton editButton = styledButton("Edit", ButtonKind.OUTLINE);
-        editButton.setPreferredSize(new Dimension(70, 36));
+        editButton.setPreferredSize(new Dimension(68, 36));
         editButton.addActionListener(e -> editGuest());
 
-        // Only advance bookings use this button; walk-ins are checked in automatically
         checkInButton = styledButton("Check in", ButtonKind.PRIMARY);
-        checkInButton.setPreferredSize(new Dimension(96, 36));
+        checkInButton.setPreferredSize(new Dimension(92, 36));
         checkInButton.addActionListener(e -> checkInSelected());
 
-        JPanel right = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
+        checkOutButton = styledButton("Check out", ButtonKind.PRIMARY);
+        checkOutButton.setPreferredSize(new Dimension(98, 36));
+        checkOutButton.addActionListener(e -> checkOutSelected());
+
+        cancelBookingButton = styledButton("Cancel booking", ButtonKind.DANGER);
+        cancelBookingButton.setPreferredSize(new Dimension(122, 36));
+        cancelBookingButton.addActionListener(e -> cancelSelectedBooking());
+
+        JPanel right = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
         right.setOpaque(false);
-        right.add(filterBox);
         right.add(editButton);
         right.add(checkInButton);
+        right.add(checkOutButton);
+        right.add(cancelBookingButton);
 
         searchRow.add(searchField, BorderLayout.CENTER);
         searchRow.add(right, BorderLayout.EAST);
@@ -210,9 +232,10 @@ public class GuestPanel extends JPanel {
 
     private JScrollPane createTable() {
 
+        // Room column is first; Email column removed
         String[] columns = {
-            "Guest name", "Contact number", "Email", "Address",
-            "Room", "Booking type", "Check-in", "Check-out"
+            "Room", "Guest name", "Contact number",
+            "Address", "Booking type", "Check-in", "Check-out"
         };
 
         tableModel = new DefaultTableModel(columns, 0) {
@@ -225,7 +248,7 @@ public class GuestPanel extends JPanel {
         guestTable = new JTable(tableModel);
         guestTable.setFont(new Font("SansSerif", Font.PLAIN, 11));
         guestTable.setForeground(INK);
-        guestTable.setRowHeight(48);
+        guestTable.setRowHeight(52);
         guestTable.setShowVerticalLines(false);
         guestTable.setShowHorizontalLines(true);
         guestTable.setGridColor(ROW_LINE);
@@ -236,7 +259,6 @@ public class GuestPanel extends JPanel {
         guestTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         guestTable.setToolTipText("Double-click a guest to edit");
 
-        // The list keeps the order of the records: no sorting by column
         guestTable.setAutoCreateRowSorter(false);
         guestTable.setRowSorter(null);
 
@@ -246,16 +268,21 @@ public class GuestPanel extends JPanel {
             guestTable.getColumnModel().getColumn(i).setCellRenderer(center);
         }
 
-        // Column widths (the date columns hold two lines: standard time + actual time)
-        int[] widths = {100, 112, 118, 88, 42, 106, 126, 134};
+        // Emphasize Room number in the first column
+        DefaultTableCellRenderer roomRenderer = new DefaultTableCellRenderer();
+        roomRenderer.setHorizontalAlignment(SwingConstants.CENTER);
+        roomRenderer.setFont(new Font("SansSerif", Font.BOLD, 12));
+        roomRenderer.setForeground(BURGUNDY);
+        guestTable.getColumnModel().getColumn(0).setCellRenderer(roomRenderer);
+
+        int[] widths = {58, 128, 122, 138, 102, 148, 148};
         for (int i = 0; i < widths.length; i++) {
             guestTable.getColumnModel().getColumn(i).setPreferredWidth(widths[i]);
         }
 
-        // Re-check the Check in button whenever another row is selected
         guestTable.getSelectionModel().addListSelectionListener(e -> {
             if (!e.getValueIsAdjusting()) {
-                updateCheckInButton();
+                updateActionButtons();
             }
         });
 
@@ -357,7 +384,6 @@ public class GuestPanel extends JPanel {
         dialog.setVisible(true);
 
         Guest updated = dialog.getResult();
-
         if (updated == null) {
             return;
         }
@@ -365,24 +391,18 @@ public class GuestPanel extends JPanel {
         try {
             guestService.updateGuest(selected.getGuestId(), updated);
             refreshTable();
-
             JOptionPane.showMessageDialog(this, "Guest updated successfully.");
-
         } catch (DuplicateRecordException | IllegalArgumentException e) {
             showError(e.getMessage());
         }
     }
 
     private GuestRow getSelectedRow() {
-
         int row = guestTable.getSelectedRow();
-
         if (row == -1) {
             return null;
         }
-
         int index = currentPage * PAGE_SIZE + guestTable.convertRowIndexToModel(row);
-
         return index < filtered.size() ? filtered.get(index) : null;
     }
 
@@ -392,16 +412,15 @@ public class GuestPanel extends JPanel {
     }
 
     // =====================================================================
-    //  Check-in (advance bookings only)
+    //  Check-in, Check-out & Cancellation Logic
     // =====================================================================
 
-    /** Checks in the selected advance booking, recording the actual check-in time. */
     private void checkInSelected() {
 
         GuestRow row = getSelectedRow();
 
         if (row == null || row.booking == null) {
-            showError("Please select a guest with a booking to check in.");
+            showError("Please select a guest with an active booking to check in.");
             return;
         }
 
@@ -410,7 +429,7 @@ public class GuestPanel extends JPanel {
             refreshTable();
 
             JOptionPane.showMessageDialog(this,
-                row.guest.getFullName() + " checked in to room "
+                row.guest.getFullName() + " checked in to Room "
                 + row.booking.getRoomNumber() + ".");
 
         } catch (InvalidBookingException e) {
@@ -419,37 +438,173 @@ public class GuestPanel extends JPanel {
         }
     }
 
-    /** Enables the Check in button only when the selected guest is eligible, and says why not otherwise. */
-    private void updateCheckInButton() {
+    private void checkOutSelected() {
 
-        if (checkInButton == null) {
+        GuestRow row = getSelectedRow();
+
+        if (row == null || row.booking == null) {
+            showError("Please select a checked-in guest to check out.");
+            return;
+        }
+
+        try {
+            bookingService.checkOutBooking(row.booking.getBookingId());
+            refreshTable();
+
+            JOptionPane.showMessageDialog(this,
+                row.guest.getFullName() + " checked out from Room "
+                + row.booking.getRoomNumber() + ".");
+
+        } catch (InvalidBookingException e) {
+            showError(e.getMessage());
+            refreshTable();
+        }
+    }
+
+    /**
+     * Cancels a Reserved booking, frees the room, records the PHP 500 cancellation fee
+     * in PaymentService, and hides the cancelled row from Guest Management.
+     * Cancelled bookings remain in BookingService for financial history but are excluded
+     * from the Payment Receipt search bar.
+     */
+    private void cancelSelectedBooking() {
+
+        GuestRow row = getSelectedRow();
+
+        if (row == null || row.booking == null) {
+            showError("Please select a guest with a reserved booking to cancel.");
+            return;
+        }
+
+        if (!"Reserved".equalsIgnoreCase(row.booking.getBookingStatus())) {
+            showError("Only reserved (not yet checked-in) bookings can be cancelled.");
+            return;
+        }
+
+        CancellationFeeDialog dialog = new CancellationFeeDialog(row.guest, row.booking);
+        dialog.setVisible(true);
+
+        if (!dialog.isConfirmed()) {
+            return;
+        }
+
+        String bookingId = row.booking.getBookingId();
+        String guestName = row.guest.getFullName();
+        String roomNumber = row.booking.getRoomNumber();
+
+        try {
+            // 1. Mark booking cancelled & release the room
+            bookingService.cancelBooking(bookingId);
+
+            // 2. Record the mandatory PHP 500 cancellation fee
+            Payment feePayment = new Payment(
+                nextPaymentId(),
+                bookingId,
+                CANCELLATION_FEE,
+                dialog.getSelectedMethod(),
+                LocalDate.now(),
+                "Paid"
+            );
+            paymentService.addPayment(feePayment);
+
+            refreshTable();
+
+            JOptionPane.showMessageDialog(
+                this,
+                "Booking for " + guestName + " (Room " + roomNumber + ") has been cancelled.\n"
+                    + "Cancellation fee of PHP 500 paid via " + dialog.getSelectedMethod() + ".",
+                "Booking Cancelled",
+                JOptionPane.INFORMATION_MESSAGE
+            );
+
+        } catch (InvalidBookingException
+                | IllegalArgumentException e) {
+            showError(e.getMessage());
+            refreshTable();
+        }
+    }
+
+    private String nextPaymentId() {
+        int max = 0;
+        for (Payment p : paymentService.getAllPayments()) {
+            String id = p.getPaymentId();
+            if (id != null) {
+                int dash = id.lastIndexOf('-');
+                String digits = (dash >= 0 ? id.substring(dash + 1) : id).replaceAll("\\D", "");
+                if (!digits.isEmpty() && digits.length() <= 9) {
+                    max = Math.max(max, Integer.parseInt(digits));
+                }
+            }
+        }
+        return String.format("PAY-%04d", max + 1);
+    }
+
+    private void updateActionButtons() {
+
+        if (checkInButton == null || checkOutButton == null || cancelBookingButton == null) {
             return;
         }
 
         GuestRow row = getSelectedRow();
-        boolean eligible = false;
-        String tip;
+
+        // --- Check-in button state ---
+        boolean canCheckIn = false;
+        String checkInTip;
 
         if (row == null || row.booking == null) {
-            tip = "Select a guest with a booking.";
-        } else if (row.booking.isWalkIn()) {
-            tip = "Walk-in guests are checked in automatically.";
+            checkInTip = "Select a guest with a booking.";
         } else if ("Checked In".equalsIgnoreCase(row.booking.getBookingStatus())) {
-            tip = "This guest is already checked in.";
+            checkInTip = "This guest is already checked in.";
         } else if ("Checked Out".equalsIgnoreCase(row.booking.getBookingStatus())) {
-            tip = "This guest has already checked out.";
+            checkInTip = "This guest has already checked out.";
         } else if (bookingService.isEligibleForCheckIn(row.booking)) {
-            eligible = true;
-            tip = "Check this guest in now.";
+            canCheckIn = true;
+            checkInTip = "Check this guest in now.";
         } else if (LocalDate.now().equals(row.booking.getCheckInDate())) {
-            tip = "Check-in opens at " + Booking.STANDARD_CHECK_IN_TIME.format(TIME_FMT) + ".";
+            checkInTip = "Check-in opens at " + Booking.STANDARD_CHECK_IN_TIME.format(TIME_FMT) + ".";
         } else {
-            tip = "Check-in opens on " + row.booking.getCheckInDate().format(DAY_FMT)
+            checkInTip = "Check-in opens on " + row.booking.getCheckInDate().format(DAY_FMT)
                 + " at " + Booking.STANDARD_CHECK_IN_TIME.format(TIME_FMT) + ".";
         }
 
-        checkInButton.setEnabled(eligible);
-        checkInButton.setToolTipText(tip);
+        checkInButton.setEnabled(canCheckIn);
+        checkInButton.setToolTipText(checkInTip);
+
+        // --- Check-out button state ---
+        boolean canCheckOut = false;
+        String checkOutTip;
+
+        if (row == null || row.booking == null) {
+            checkOutTip = "Select a guest with a booking.";
+        } else if ("Checked Out".equalsIgnoreCase(row.booking.getBookingStatus())) {
+            checkOutTip = "This guest has already checked out.";
+        } else if ("Checked In".equalsIgnoreCase(row.booking.getBookingStatus())) {
+            canCheckOut = true;
+            checkOutTip = "Check this guest out now.";
+        } else {
+            checkOutTip = "Guest must be checked in before checking out.";
+        }
+
+        checkOutButton.setEnabled(canCheckOut);
+        checkOutButton.setToolTipText(checkOutTip);
+
+        // --- Cancel booking button state ---
+        boolean canCancel = false;
+        String cancelTip;
+
+        if (row == null || row.booking == null) {
+            cancelTip = "Select a guest with a reserved booking to cancel.";
+        } else if ("Reserved".equalsIgnoreCase(row.booking.getBookingStatus())) {
+            canCancel = true;
+            cancelTip = "Cancel this reservation (PHP 500 cancellation fee applies).";
+        } else if ("Checked In".equalsIgnoreCase(row.booking.getBookingStatus())) {
+            cancelTip = "A checked-in guest cannot be cancelled.";
+        } else {
+            cancelTip = "This booking can no longer be cancelled.";
+        }
+
+        cancelBookingButton.setEnabled(canCancel);
+        cancelBookingButton.setToolTipText(cancelTip);
     }
 
     // =====================================================================
@@ -472,38 +627,36 @@ public class GuestPanel extends JPanel {
         }
 
         String keyword = searchField == null ? "" : searchField.getText().trim();
-        String filter = filterBox == null ? "All guests" : filterBox.getSelectedItem().toString();
+        String search = keyword.toLowerCase();
 
         filtered.clear();
 
-        String search = keyword.toLowerCase();
         List<Booking> allBookings = bookingService.getAllBookings();
 
-        // Guests come from the guest records; their stays come from confirmed bookings.
+        // Join guest records with their active (non-cancelled) bookings
         for (Guest g : guestService.getAllGuests()) {
 
-            boolean noEmail = g.getEmail() == null || g.getEmail().isBlank();
-            boolean noPhone = g.getPhoneNumber() == null || g.getPhoneNumber().isBlank();
+            List<Booking> activeStays = new ArrayList<>();
+            boolean hasAnyBooking = false;
 
-            if (filter.equals("Missing email") && !noEmail) continue;
-            if (filter.equals("Missing phone") && !noPhone) continue;
-
-            List<Booking> stays = new ArrayList<>();
             for (Booking b : allBookings) {
-                boolean cancelled = "Cancelled".equalsIgnoreCase(b.getBookingStatus());
-                if (!cancelled && b.getGuestId().equalsIgnoreCase(g.getGuestId())) {
-                    stays.add(b);
+                if (b.getGuestId().equalsIgnoreCase(g.getGuestId())) {
+                    hasAnyBooking = true;
+                    if (!"Cancelled".equalsIgnoreCase(b.getBookingStatus())) {
+                        activeStays.add(b);
+                    }
                 }
             }
 
-            if (stays.isEmpty()) {
-                if (matches(g, null, search)) {
+            // Hide guests whose bookings were all cancelled
+            if (activeStays.isEmpty()) {
+                if (!hasAnyBooking && matches(g, null, search)) {
                     filtered.add(new GuestRow(g, null));
                 }
                 continue;
             }
 
-            for (Booking b : stays) {
+            for (Booking b : activeStays) {
                 if (matches(g, b, search)) {
                     filtered.add(new GuestRow(g, b));
                 }
@@ -525,11 +678,10 @@ public class GuestPanel extends JPanel {
             Booking b = row.booking;
 
             tableModel.addRow(new Object[] {
+                b == null ? "\u2014" : b.getRoomNumber(),
                 g.getFullName(),
                 g.getPhoneNumber(),
-                g.getEmail(),
-                g.getAddress(),
-                b == null ? "\u2014" : b.getRoomNumber(),
+                g.getAddress() == null || g.getAddress().isBlank() ? "\u2014" : g.getAddress(),
                 b == null ? "\u2014" : b.getBookingType(),
                 b == null ? "\u2014" : checkInText(b),
                 b == null ? "\u2014" : checkOutText(b)
@@ -538,7 +690,6 @@ public class GuestPanel extends JPanel {
 
         int total = filtered.size();
 
-        // Count guests (a guest with two stays has two rows but is one profile)
         java.util.Set<String> guestIds = new java.util.HashSet<>();
         for (GuestRow row : filtered) {
             guestIds.add(row.guest.getGuestId());
@@ -554,68 +705,65 @@ public class GuestPanel extends JPanel {
         prevButton.setEnabled(currentPage > 0);
         nextButton.setEnabled(currentPage < pageCount() - 1);
 
-        updateCheckInButton();
+        updateActionButtons();
     }
 
-    /** Search by name, email, phone, room number or booking type. */
     private boolean matches(Guest g, Booking b, String search) {
-
         if (search.isEmpty()) {
             return true;
         }
-
         return g.getGuestId().toLowerCase().contains(search)
             || g.getFullName().toLowerCase().contains(search)
-            || g.getEmail().toLowerCase().contains(search)
             || g.getPhoneNumber().toLowerCase().contains(search)
+            || (g.getAddress() != null && g.getAddress().toLowerCase().contains(search))
             || (b != null && b.getRoomNumber().toLowerCase().contains(search))
             || (b != null && b.getBookingType().toLowerCase().contains(search));
     }
 
-    // Check-in cell: scheduled date + standard time (2:00 PM), then the actual check-in.
     private String checkInText(Booking b) {
 
-        String standard = b.getCheckInDate().format(DAY_FMT)
-            + " \u00B7 " + Booking.STANDARD_CHECK_IN_TIME.format(TIME_FMT);
-
         LocalDateTime actual = b.getActualCheckIn();
-        String status;
 
         if (actual != null) {
-            status = "Actual: " + actual.format(STAMP_FMT);
-        } else if ("Checked In".equalsIgnoreCase(b.getBookingStatus())
-                || "Checked Out".equalsIgnoreCase(b.getBookingStatus())) {
-            status = "Checked in"; // saved before times were tracked, so no clock time to show
-        } else {
-            status = "Not yet checked in";
+            String mainLine = actual.toLocalDate().format(DAY_FMT)
+                + " \u00B7 " + actual.toLocalTime().format(TIME_FMT);
+            return twoLines(mainLine, "Checked in", STATUS_DONE_HEX);
         }
 
-        return twoLines(standard, status);
+        if ("Checked In".equalsIgnoreCase(b.getBookingStatus())
+                || "Checked Out".equalsIgnoreCase(b.getBookingStatus())) {
+            String mainLine = b.getCheckInDate().format(DAY_FMT);
+            return twoLines(mainLine, "Checked in", STATUS_DONE_HEX);
+        }
+
+        String mainLine = b.getCheckInDate().format(DAY_FMT);
+        return twoLines(mainLine, "Not yet checked in", STATUS_PENDING_HEX);
     }
 
-    // Check-out cell: scheduled date + standard time (11:00 AM), then the actual check-out.
     private String checkOutText(Booking b) {
 
-        String standard = b.getCheckOutDate().format(DAY_FMT)
-            + " \u00B7 " + Booking.STANDARD_CHECK_OUT_TIME.format(TIME_FMT);
-
         LocalDateTime actual = b.getActualCheckOut();
-        String status;
 
         if (actual != null) {
-            status = "Actual: " + actual.format(STAMP_FMT);
-        } else if ("Checked Out".equalsIgnoreCase(b.getBookingStatus())) {
-            status = "Checked out"; // saved before times were tracked
-        } else {
-            status = "Not yet checked out";
+            String mainLine = actual.toLocalDate().format(DAY_FMT)
+                + " \u00B7 " + actual.toLocalTime().format(TIME_FMT);
+            return twoLines(mainLine, "Checked out", STATUS_DONE_HEX);
         }
 
-        return twoLines(standard, status);
+        if ("Checked Out".equalsIgnoreCase(b.getBookingStatus())) {
+            String mainLine = b.getCheckOutDate().format(DAY_FMT);
+            return twoLines(mainLine, "Checked out", STATUS_DONE_HEX);
+        }
+
+        String mainLine = b.getCheckOutDate().format(DAY_FMT);
+        return twoLines(mainLine, "Not yet checked out", STATUS_PENDING_HEX);
     }
 
-    private static String twoLines(String main, String note) {
-        return "<html><div style='text-align:center'>" + main
-            + "<br><font color='" + MUTED_HEX + "' size='2'>" + note + "</font></div></html>";
+    private static String twoLines(String main, String badgeText, String badgeHex) {
+        return "<html><div style='text-align:center'>"
+            + "<span style='color:#1B2A3A; font-size:11px;'>" + main + "</span><br>"
+            + "<b style='color:" + badgeHex + "; font-size:10.5px;'>" + badgeText + "</b>"
+            + "</div></html>";
     }
 
     private void showError(String message) {
@@ -626,14 +774,161 @@ public class GuestPanel extends JPanel {
     //  Dialogs
     // =====================================================================
 
-    /** Edit guest form (first + last name, email, contact, address). */
+    private class CancellationFeeDialog extends JDialog {
+
+        private final JTextField amountField = formField("500");
+        private final JComboBox<String> methodBox = new JComboBox<>(new String[] {
+            "Select payment method", "Cash", "Card", "Bank Transfer", "E-Wallet"
+        });
+        private final JLabel errorLabel = new JLabel(" ");
+
+        private boolean confirmed = false;
+        private String selectedMethod;
+
+        CancellationFeeDialog(Guest guest, Booking booking) {
+            super(SwingUtilities.getWindowAncestor(GuestPanel.this),
+                  "Cancel booking",
+                  ModalityType.APPLICATION_MODAL);
+
+            setUndecorated(true);
+
+            ((AbstractDocument) amountField.getDocument()).setDocumentFilter(new AmountFilter());
+            amountField.setText("500");
+
+            methodBox.setFont(new Font("SansSerif", Font.PLAIN, 12));
+            methodBox.setBackground(Color.WHITE);
+            methodBox.setForeground(INK);
+            methodBox.setPreferredSize(new Dimension(200, 40));
+
+            JPanel root = new JPanel();
+            root.setLayout(new BoxLayout(root, BoxLayout.Y_AXIS));
+            root.setBackground(Color.WHITE);
+            root.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(CARD_BORDER),
+                BorderFactory.createEmptyBorder(22, 22, 20, 22)
+            ));
+
+            JLabel title = new JLabel("Cancel booking");
+            title.setFont(new Font("SansSerif", Font.BOLD, 20));
+            title.setForeground(INK);
+
+            JLabel subtitle = new JLabel(
+                guest.getFullName() + " · Room " + booking.getRoomNumber()
+                + " (" + booking.getCheckInDate().format(DAY_FMT) + ")"
+            );
+            subtitle.setFont(new Font("SansSerif", Font.PLAIN, 12));
+            subtitle.setForeground(MUTED);
+
+            root.add(left(title));
+            root.add(Box.createVerticalStrut(6));
+            root.add(left(subtitle));
+            root.add(Box.createVerticalStrut(14));
+
+            JSeparator sep = new JSeparator();
+            sep.setForeground(ROW_LINE);
+            sep.setMaximumSize(new Dimension(Integer.MAX_VALUE, 1));
+            root.add(sep);
+            root.add(Box.createVerticalStrut(14));
+
+            JPanel feeBanner = new JPanel(new BorderLayout());
+            feeBanner.setBackground(new Color(0xFB, 0xF3, 0xE4));
+            feeBanner.setBorder(BorderFactory.createCompoundBorder(
+                new RoundedBorder(new Color(0xE2, 0xC6, 0x99), 6, 1),
+                BorderFactory.createEmptyBorder(10, 12, 10, 12)
+            ));
+            JLabel feeText = new JLabel(
+                "<html><b>Cancellation Fee Due: PHP 500</b><br>"
+                + "<span style='color:#6B7783; font-size:10px;'>"
+                + "Full payment of PHP 500 is required to process cancellation.</span></html>"
+            );
+            feeText.setFont(new Font("SansSerif", Font.PLAIN, 12));
+            feeText.setForeground(BURGUNDY);
+            feeBanner.add(feeText, BorderLayout.CENTER);
+            root.add(left(feeBanner));
+            root.add(Box.createVerticalStrut(14));
+
+            root.add(left(labeled("Payment Amount (PHP)", amountField)));
+            root.add(Box.createVerticalStrut(14));
+            root.add(left(labeled("Payment Method", methodBox)));
+            root.add(Box.createVerticalStrut(10));
+
+            errorLabel.setFont(new Font("SansSerif", Font.PLAIN, 11));
+            errorLabel.setForeground(DANGER);
+            root.add(left(errorLabel));
+            root.add(Box.createVerticalStrut(14));
+
+            JButton back = styledButton("Keep booking", ButtonKind.OUTLINE);
+            back.setPreferredSize(new Dimension(120, 40));
+            back.addActionListener(e -> dispose());
+
+            JButton proceed = styledButton("Pay PHP 500 & Cancel", ButtonKind.PRIMARY);
+            proceed.setPreferredSize(new Dimension(210, 40));
+            proceed.addActionListener(e -> submit());
+
+            JPanel buttons = new JPanel(new BorderLayout(12, 0));
+            buttons.add(back, BorderLayout.WEST);
+            buttons.add(proceed, BorderLayout.CENTER);
+            buttons.setOpaque(false);
+            root.add(left(buttons));
+
+            getRootPane().setDefaultButton(proceed);
+            setContentPane(root);
+            setMinimumSize(new Dimension(410, 0));
+            pack();
+            setLocationRelativeTo(GuestPanel.this);
+        }
+
+        private void submit() {
+            String rawAmount = amountField.getText().trim();
+            if (rawAmount.isEmpty()) {
+                errorLabel.setText("Payment amount (PHP 500) is required.");
+                amountField.requestFocus();
+                return;
+            }
+            if (!rawAmount.matches("\\d+(\\.\\d{1,2})?")) {
+                errorLabel.setText("Payment amount must contain numbers only.");
+                amountField.requestFocus();
+                return;
+            }
+
+            double entered;
+            try {
+                entered = Double.parseDouble(rawAmount);
+            } catch (NumberFormatException e) {
+                errorLabel.setText("Please enter a valid numeric payment amount.");
+                amountField.requestFocus();
+                return;
+            }
+
+            if (Math.abs(entered - CANCELLATION_FEE) > 0.004) {
+                errorLabel.setText("Exact cancellation fee of PHP 500 is required.");
+                amountField.requestFocus();
+                return;
+            }
+
+            Object method = methodBox.getSelectedItem();
+            if (method == null || "Select payment method".equalsIgnoreCase(method.toString())) {
+                errorLabel.setText("Please select a payment method.");
+                methodBox.requestFocus();
+                return;
+            }
+
+            selectedMethod = method.toString();
+            confirmed = true;
+            dispose();
+        }
+
+        boolean isConfirmed() { return confirmed; }
+        String getSelectedMethod() { return selectedMethod; }
+    }
+
     private class GuestDialog extends JDialog {
 
         private final String guestId;
+        private final String existingEmail;
 
         private final JTextField firstField = formField("Enter first name");
         private final JTextField lastField = formField("Enter last name");
-        private final JTextField emailField = formField("guest@example.com");
         private final JTextField phoneField = formField("Include country code");
         private final JTextField addressField = formField("Enter Address");
         private final JLabel errorLabel = new JLabel(" ");
@@ -646,6 +941,7 @@ public class GuestPanel extends JPanel {
                   ModalityType.APPLICATION_MODAL);
 
             this.guestId = guestId;
+            this.existingEmail = existing.getEmail() == null ? "" : existing.getEmail();
 
             setUndecorated(true);
 
@@ -656,7 +952,6 @@ public class GuestPanel extends JPanel {
             int split = full.lastIndexOf(' ');
             firstField.setText(split < 0 ? full : full.substring(0, split));
             lastField.setText(split < 0 ? "" : full.substring(split + 1));
-            emailField.setText(existing.getEmail());
             phoneField.setText(existing.getPhoneNumber());
             addressField.setText(existing.getAddress());
 
@@ -694,8 +989,6 @@ public class GuestPanel extends JPanel {
             root.add(left(names));
             root.add(Box.createVerticalStrut(14));
 
-            root.add(left(labeled("Email address", emailField)));
-            root.add(Box.createVerticalStrut(14));
             root.add(left(labeled("Contact number", phoneField)));
             root.add(Box.createVerticalStrut(14));
             root.add(left(labeled("Address", addressField)));
@@ -746,7 +1039,6 @@ public class GuestPanel extends JPanel {
             }
 
             String phoneError = validatePhone(phoneField.getText());
-
             if (phoneError != null) {
                 errorLabel.setText(phoneError);
                 phoneField.requestFocus();
@@ -757,7 +1049,7 @@ public class GuestPanel extends JPanel {
                 result = new Guest(
                     guestId,
                     (first + " " + last).trim(),
-                    emailField.getText().trim(),
+                    existingEmail,
                     formatPhone(phoneField.getText()),
                     addressField.getText().trim()
                 );
@@ -788,22 +1080,32 @@ public class GuestPanel extends JPanel {
 
                 Color fill;
                 Color line;
-                Color text;
+                Color txt;
 
                 switch (kind) {
-                    case PRIMARY -> { fill = BURGUNDY; line = BURGUNDY; text = Color.WHITE; }
-                    case DANGER  -> { fill = Color.WHITE; line = DANGER_LINE; text = DANGER; }
-                    default      -> { fill = Color.WHITE; line = CARD_BORDER; text = INK; }
+                    case PRIMARY -> { fill = BURGUNDY; line = BURGUNDY; txt = Color.WHITE; }
+                    case DANGER  -> { fill = Color.WHITE; line = DANGER_LINE; txt = DANGER; }
+                    default      -> { fill = Color.WHITE; line = CARD_BORDER; txt = INK; }
                 }
 
                 if (!isEnabled()) {
-                    fill = kind == ButtonKind.PRIMARY ? new Color(0xB9, 0xA0, 0xA0) : fill;
-                    text = HINT;
-                }
-                if (getModel().isRollover() && isEnabled() && kind != ButtonKind.PRIMARY) {
+                    if (kind == ButtonKind.PRIMARY || kind == ButtonKind.DANGER) {
+                        fill = new Color(0xEF, 0xDE, 0xDE);
+                        line = new Color(0xD8, 0xB4, 0xB4);
+                        txt  = new Color(0x6E, 0x24, 0x24);
+                    } else {
+                        fill = new Color(0xF5, 0xF5, 0xF5);
+                        line = CARD_BORDER;
+                        txt  = HINT;
+                    }
+                } else if (getModel().isRollover() && kind == ButtonKind.DANGER) {
+                    fill = new Color(0xFA, 0xF0, 0xEE);
+                } else if (getModel().isRollover() && kind != ButtonKind.PRIMARY) {
                     fill = new Color(0xFA, 0xF8, 0xF6);
+                } else if (getModel().isRollover() && kind == ButtonKind.PRIMARY) {
+                    fill = new Color(0x64, 0x0A, 0x0A);
                 }
-                if (getModel().isPressed()) {
+                if (getModel().isPressed() && isEnabled()) {
                     fill = fill.darker();
                 }
 
@@ -813,13 +1115,21 @@ public class GuestPanel extends JPanel {
                 g2.draw(new RoundRectangle2D.Float(0, 0, getWidth() - 1, getHeight() - 1, 8, 8));
                 g2.dispose();
 
-                setForeground(text);
-                super.paintComponent(g);
+                Graphics2D tg = (Graphics2D) g.create();
+                tg.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING,
+                                    RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+                tg.setFont(getFont());
+                tg.setColor(txt);
+                FontMetrics fm = tg.getFontMetrics();
+                int tx = (getWidth() - fm.stringWidth(getText())) / 2;
+                int ty = (getHeight() - fm.getHeight()) / 2 + fm.getAscent();
+                tg.drawString(getText(), tx, ty);
+                tg.dispose();
             }
         };
 
         button.setMargin(new Insets(0, 0, 0, 0));
-        button.setFont(new Font("SansSerif", Font.PLAIN, 12));
+        button.setFont(new Font("SansSerif", Font.BOLD, 12));
         button.setContentAreaFilled(false);
         button.setBorderPainted(false);
         button.setFocusPainted(false);
@@ -862,7 +1172,7 @@ public class GuestPanel extends JPanel {
     }
 
     // =====================================================================
-    //  Philippine mobile number rules: +63 9xx xxx xxxx (12 digits total)
+    //  Input Filters & Validation Helpers
     // =====================================================================
 
     private static final int PH_DIGITS = 12;
@@ -871,11 +1181,9 @@ public class GuestPanel extends JPanel {
         return s == null ? "" : s.replaceAll("\\D", "");
     }
 
-    /** Returns an error message, or null when the number is valid (blank is allowed). */
     private static String validatePhone(String raw) {
 
         String text = raw == null ? "" : raw.trim();
-
         if (text.isEmpty()) {
             return null;
         }
@@ -898,20 +1206,41 @@ public class GuestPanel extends JPanel {
         return null;
     }
 
-    /** Formats a valid number as +63 912 345 6789. */
     private static String formatPhone(String raw) {
-
         String digits = digitsOnly(raw);
-
         if (digits.length() != PH_DIGITS) {
             return raw == null ? "" : raw.trim();
         }
-
         return "+63 " + digits.substring(2, 5) + " "
                 + digits.substring(5, 8) + " " + digits.substring(8);
     }
 
-    /** Only lets digits, spaces, dashes and a leading '+' in, capped at 12 digits. */
+    private static class AmountFilter extends DocumentFilter {
+
+        @Override
+        public void insertString(FilterBypass fb, int offset, String text, AttributeSet attr)
+                throws BadLocationException {
+            replace(fb, offset, 0, text, attr);
+        }
+
+        @Override
+        public void replace(FilterBypass fb, int offset, int length, String text,
+                            AttributeSet attrs) throws BadLocationException {
+            if (text == null) {
+                super.replace(fb, offset, length, text, attrs);
+                return;
+            }
+            String current = fb.getDocument().getText(0, fb.getDocument().getLength());
+            String next = current.substring(0, offset) + text
+                    + current.substring(offset + length);
+            if (!next.matches("\\d*(\\.\\d{0,2})?")) {
+                Toolkit.getDefaultToolkit().beep();
+                return;
+            }
+            super.replace(fb, offset, length, text, attrs);
+        }
+    }
+
     private static class PhoneFilter extends javax.swing.text.DocumentFilter {
 
         @Override
@@ -948,7 +1277,6 @@ public class GuestPanel extends JPanel {
         }
     }
 
-    /** Text field that paints a gray hint while empty. */
     private static class PlaceholderField extends JTextField {
 
         private final String placeholder;
@@ -976,7 +1304,6 @@ public class GuestPanel extends JPanel {
         }
     }
 
-    /** Rounded 1px border. */
     private static class RoundedBorder extends AbstractBorder {
 
         private final Color color;
@@ -1005,7 +1332,6 @@ public class GuestPanel extends JPanel {
         }
     }
 
-    /** Minimal DocumentListener that runs one callback. */
     private static class SimpleDocListener implements javax.swing.event.DocumentListener {
 
         private final Runnable action;

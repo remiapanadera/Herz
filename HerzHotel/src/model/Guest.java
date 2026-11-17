@@ -1,4 +1,3 @@
-
 package model;
 
 public class Guest {
@@ -79,14 +78,7 @@ public class Guest {
     }
 
     public void setEmail(String email) {
-
-        if (email == null || email.trim().isEmpty()) {
-            throw new IllegalArgumentException(
-                    "Email cannot be empty."
-            );
-        }
-
-        this.email = email.trim();
+        this.email = email == null ? "" : email.trim();
     }
 
     public void setPhoneNumber(String phoneNumber) {
@@ -101,14 +93,7 @@ public class Guest {
     }
 
     public void setAddress(String address) {
-
-        if (address == null || address.trim().isEmpty()) {
-            throw new IllegalArgumentException(
-                    "Address cannot be empty."
-            );
-        }
-
-        this.address = address.trim();
+        this.address = address == null ? "" : address.trim();
     }
 
     // ==========================================
