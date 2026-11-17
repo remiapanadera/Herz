@@ -6,6 +6,7 @@ import model.Booking;
 import model.Room;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -183,6 +184,23 @@ public class BookingService {
         updateRoomStatus(booking.getRoomNumber());
     }
 
+    /*
+     * A reserved booking can be checked in on its scheduled check-in date,
+     * from the standard check-in time (2:00 PM) onward.
+     */
+    public boolean isEligibleForCheckIn(Booking booking) {
+
+        if (booking == null
+                || !"Reserved".equalsIgnoreCase(booking.getBookingStatus())) {
+            return false;
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+
+        return now.toLocalDate().equals(booking.getCheckInDate())
+                && !now.toLocalTime().isBefore(Booking.STANDARD_CHECK_IN_TIME);
+    }
+
     public void checkInBooking(String bookingId)
             throws InvalidBookingException {
 
@@ -194,12 +212,6 @@ public class BookingService {
             );
         }
 
-        if (!LocalDate.now().equals(booking.getCheckInDate())) {
-            throw new InvalidBookingException(
-                "Check-in is only allowed on the scheduled check-in date."
-            );
-        }
-
         if (!"Reserved".equalsIgnoreCase(
                 booking.getBookingStatus())) {
 
@@ -208,7 +220,52 @@ public class BookingService {
             );
         }
 
-        booking.checkIn();
+        if (!LocalDate.now().equals(booking.getCheckInDate())) {
+            throw new InvalidBookingException(
+                "Check-in is only allowed on the scheduled check-in date."
+            );
+        }
+
+        if (!isEligibleForCheckIn(booking)) {
+            throw new InvalidBookingException(
+                "Standard check-in time is 2:00 PM. "
+                + "This guest can be checked in from then."
+            );
+        }
+
+        markCheckedIn(booking);
+    }
+
+    /*
+     * Walk-in guests are checked in automatically when the booking is
+     * confirmed, so the 2:00 PM standard time does not block them.
+     * The actual arrival time is recorded.
+     */
+    public void checkInWalkIn(String bookingId)
+            throws InvalidBookingException {
+
+        Booking booking = findBookingById(bookingId);
+
+        if (booking == null) {
+            throw new InvalidBookingException(
+                "Booking not found."
+            );
+        }
+
+        if (!booking.isWalkIn()
+                || !"Reserved".equalsIgnoreCase(booking.getBookingStatus())) {
+
+            throw new InvalidBookingException(
+                "Only a new walk-in booking can be checked in automatically."
+            );
+        }
+
+        markCheckedIn(booking);
+    }
+
+    private void markCheckedIn(Booking booking) {
+
+        booking.checkIn(LocalDateTime.now());
 
         Room room = roomService.findRoomByNumber(
             booking.getRoomNumber()
@@ -244,7 +301,7 @@ public class BookingService {
             );
         }
 
-        booking.checkOut();
+        booking.checkOut(LocalDateTime.now());
 
         updateRoomStatus(booking.getRoomNumber());
     }

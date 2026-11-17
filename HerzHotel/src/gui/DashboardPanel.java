@@ -24,7 +24,9 @@ public class DashboardPanel extends JPanel {
     private static final int CARD_HEIGHT     = 128;  // height of each stat card
     private static final int CARD_GAP_X      = 100;  // space between cards (left/right)
     private static final int CARD_GAP_Y      = 50;   // space between cards (top/bottom)
-    private static final int HERO_TEXT_WIDTH = 820;  // starting width of the heading (it then fits the panel)
+    private static final int TITLE_SIZE            = 40;   // "Herz Hotel" heading
+    private static final int DESCRIPTION_SIZE      = 20;   // paragraph under the heading (smaller than the title)
+    private static final int DESCRIPTION_MAX_WIDTH = 640;  // widest the paragraph gets before wrapping
 
     private final ReportService reportService;
 
@@ -55,67 +57,72 @@ public class DashboardPanel extends JPanel {
     }
 
     // =====================================================================
-    //  TOP: big heading + "Legazpi City"
+    //  TOP: hotel title, then a smaller description, then "Legazpi City"
     // =====================================================================
     private JPanel createHeroSection() {
-        JPanel hero = new JPanel(new BorderLayout());
+        JPanel hero = new JPanel();
         hero.setOpaque(false);
+        hero.setLayout(new BoxLayout(hero, BoxLayout.Y_AXIS));
 
         String serif = fontFamily("Serif", "Playfair Display");
 
-        // A text pane wraps the sentence to the available width.
-        // Its height is worked out from the real panel width so no line gets cut off.
-        JTextPane text = new JTextPane() {
+        // --- Title: "Herz Hotel" ---
+        JLabel title = new JLabel("Herz Hotel");
+        title.setFont(new Font(serif, Font.PLAIN, TITLE_SIZE));
+        title.setForeground(BURGUNDY_HEX);
+        title.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+        // --- Description: a text pane wraps the sentence to the available width.
+        // It is capped at DESCRIPTION_MAX_WIDTH so the lines stay a comfortable length,
+        // and its height is worked out from that width so no line gets cut off.
+        JTextPane description = new JTextPane() {
             @Override public Dimension getPreferredSize() {
-                int w = HERO_TEXT_WIDTH;                       // used before the panel has a width
+                int w = DESCRIPTION_MAX_WIDTH;
                 Container parent = getParent();
-                if (parent != null && parent.getWidth() > 0) w = parent.getWidth();
+                if (parent != null && parent.getWidth() > 0) {
+                    w = Math.min(w, parent.getWidth());
+                }
                 setSize(w, Short.MAX_VALUE);
                 return new Dimension(w, super.getPreferredSize().height);
             }
+            @Override public Dimension getMaximumSize() {
+                return getPreferredSize();
+            }
         };
-        text.setEditable(false);
-        text.setFocusable(false);
-        text.setOpaque(false);
-        text.setBorder(null);
+        description.setEditable(false);
+        description.setFocusable(false);
+        description.setOpaque(false);
+        description.setBorder(null);
+        description.setAlignmentX(Component.LEFT_ALIGNMENT);
 
-        // "Herz Hotel" is bigger than the rest of the sentence, so it gets its own style
-        SimpleAttributeSet big = new SimpleAttributeSet();
-        StyleConstants.setFontFamily(big, serif);
-        StyleConstants.setFontSize(big, 46);
-        StyleConstants.setForeground(big, BURGUNDY_HEX);
-
-        SimpleAttributeSet normal = new SimpleAttributeSet();
-        StyleConstants.setFontFamily(normal, serif);
-        StyleConstants.setFontSize(normal, 30);
-        StyleConstants.setForeground(normal, BURGUNDY_HEX);
+        SimpleAttributeSet style = new SimpleAttributeSet();
+        StyleConstants.setFontFamily(style, serif);
+        StyleConstants.setFontSize(style, DESCRIPTION_SIZE);
+        StyleConstants.setForeground(style, BURGUNDY_HEX);
+        StyleConstants.setAlignment(style, StyleConstants.ALIGN_LEFT);
+        StyleConstants.setLineSpacing(style, 0.15f); // a little space between lines
 
         try {
-            StyledDocument doc = text.getStyledDocument();
-            doc.insertString(0, "Herz Hotel ", big);
-            doc.insertString(doc.getLength(),
+            StyledDocument doc = description.getStyledDocument();
+            doc.insertString(0,
                 "offers comfortable and affordable accommodations for guests "
-                + "looking for a relaxing and enjoyable stay.", normal);
-
-            SimpleAttributeSet spacing = new SimpleAttributeSet(); // a little space between lines
-            StyleConstants.setLineSpacing(spacing, 0.1f);
-            doc.setParagraphAttributes(0, doc.getLength(), spacing, false);
+                + "looking for a relaxing and enjoyable stay.", style);
+            doc.setParagraphAttributes(0, doc.getLength(), style, false);
         } catch (BadLocationException e) {
-            // cannot happen: the text is inserted at valid positions
+            // cannot happen: the text is inserted at a valid position
         }
 
-        // Small gray "Legazpi City" on the right, under the heading
+        // --- Small gray "Legazpi City" under the description ---
         JLabel city = new JLabel("Legazpi City");
         city.setFont(font("SansSerif", Font.BOLD, 12, "Inter"));
         city.setForeground(MUTED);
+        city.setAlignmentX(Component.LEFT_ALIGNMENT);
 
-        JPanel cityRow = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
-        cityRow.setOpaque(false);
-        cityRow.setBorder(new EmptyBorder(4, 0, 0, 40)); // 4th number = distance from the right edge
-        cityRow.add(city);
-
-        hero.add(text, BorderLayout.CENTER);
-        hero.add(cityRow, BorderLayout.SOUTH);
+        hero.add(title);
+        hero.add(Box.createVerticalStrut(8));   // space between title and description
+        hero.add(description);
+        hero.add(Box.createVerticalStrut(10));  // space between description and city
+        hero.add(city);
         return hero;
     }
 

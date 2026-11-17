@@ -1,7 +1,10 @@
 package gui;
 
 import exception.DuplicateRecordException;
+import exception.InvalidBookingException;
+import model.Booking;
 import model.Guest;
+import service.BookingService;
 import service.GuestService;
 import util.HerzTheme;
 
@@ -14,8 +17,12 @@ import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.geom.RoundRectangle2D;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 public class GuestPanel extends JPanel {
 
@@ -33,12 +40,17 @@ public class GuestPanel extends JPanel {
     private static final Color ROW_LINE     = new Color(0xE6, 0xE6, 0xE6);
     private static final Color HEADER_BG    = new Color(0xF1, 0xF2, 0xF2);
     private static final Color DANGER       = new Color(0xA5, 0x3B, 0x33);
-    private static final Color DANGER_BG    = new Color(0xF8, 0xE9, 0xE6);
     private static final Color DANGER_LINE  = new Color(0xEB, 0xCF, 0xC9);
 
     private static final int PAGE_SIZE = 8;
 
+    private static final DateTimeFormatter DAY_FMT  = DateTimeFormatter.ofPattern("d MMM yyyy", Locale.ENGLISH);
+    private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("h:mm a", Locale.ENGLISH);
+    private static final DateTimeFormatter STAMP_FMT = DateTimeFormatter.ofPattern("d MMM, h:mm a", Locale.ENGLISH);
+    private static final String MUTED_HEX = "#6B7783";
+
     private final GuestService guestService;
+    private final BookingService bookingService;
 
     private JTable guestTable;
     private DefaultTableModel tableModel;
@@ -46,20 +58,33 @@ public class GuestPanel extends JPanel {
     private JComboBox<String> filterBox;
     private JLabel countLabel;
     private JLabel showingLabel;
+    private JButton checkInButton;
     private JButton prevButton;
     private JButton nextButton;
     private JLabel pageLabel;
 
-    private final List<Guest> filtered = new ArrayList<>();
+    // One row per guest + booking (a guest with no active booking gets a single row)
+    private final List<GuestRow> filtered = new ArrayList<>();
     private int currentPage = 0;
 
-    public GuestPanel(GuestService guestService) {
+    private static class GuestRow {
+        final Guest guest;
+        final Booking booking; // null when the guest has no active booking
 
-        if (guestService == null) {
-            throw new IllegalArgumentException("GuestService is required.");
+        GuestRow(Guest guest, Booking booking) {
+            this.guest = guest;
+            this.booking = booking;
+        }
+    }
+
+    public GuestPanel(GuestService guestService, BookingService bookingService) {
+
+        if (guestService == null || bookingService == null) {
+            throw new IllegalArgumentException("GuestService and BookingService are required.");
         }
 
         this.guestService = guestService;
+        this.bookingService = bookingService;
 
         setLayout(new BorderLayout(0, 14));
         setBackground(PAGE_BG);
@@ -69,6 +94,10 @@ public class GuestPanel extends JPanel {
         add(createCard(), BorderLayout.CENTER);
 
         refreshTable();
+
+        // The 2:00 PM check-in time can arrive while this page is open,
+        // so the Check in button is re-evaluated every 30 seconds.
+        new javax.swing.Timer(30_000, e -> updateCheckInButton()).start();
     }
 
     // =====================================================================
@@ -128,7 +157,7 @@ public class GuestPanel extends JPanel {
         JPanel searchRow = new JPanel(new BorderLayout(12, 0));
         searchRow.setOpaque(false);
 
-        searchField = new PlaceholderField("Search by name, email or phone...");
+        searchField = new PlaceholderField("Search by name, email, phone or room...");
         searchField.setPreferredSize(new Dimension(300, 36));
         searchField.setBackground(FIELD_BG);
         searchField.setBorder(BorderFactory.createCompoundBorder(
@@ -147,31 +176,20 @@ public class GuestPanel extends JPanel {
         filterBox.setPreferredSize(new Dimension(190, 36));
         filterBox.addActionListener(e -> resetAndRefresh());
 
-        JButton addButton = styledButton("+ Add guest", ButtonKind.PRIMARY);
-        addButton.setPreferredSize(new Dimension(120, 36));
-        addButton.addActionListener(e -> addGuest());
-
         JButton editButton = styledButton("Edit", ButtonKind.OUTLINE);
         editButton.setPreferredSize(new Dimension(70, 36));
         editButton.addActionListener(e -> editGuest());
 
-        JButton deleteButton = styledButton("Delete", ButtonKind.DANGER);
-        deleteButton.setPreferredSize(new Dimension(80, 36));
-        deleteButton.addActionListener(e -> {
-            Guest selected = getSelectedGuest();
-            if (selected == null) {
-                showError("Please select a guest to delete.");
-                return;
-            }
-            deleteGuest(selected);
-        });
+        // Only advance bookings use this button; walk-ins are checked in automatically
+        checkInButton = styledButton("Check in", ButtonKind.PRIMARY);
+        checkInButton.setPreferredSize(new Dimension(96, 36));
+        checkInButton.addActionListener(e -> checkInSelected());
 
         JPanel right = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
         right.setOpaque(false);
         right.add(filterBox);
         right.add(editButton);
-        right.add(deleteButton);
-        right.add(addButton);
+        right.add(checkInButton);
 
         searchRow.add(searchField, BorderLayout.CENTER);
         searchRow.add(right, BorderLayout.EAST);
@@ -193,7 +211,8 @@ public class GuestPanel extends JPanel {
     private JScrollPane createTable() {
 
         String[] columns = {
-            "Guest name", "Contact number", "Email", "Address"
+            "Guest name", "Contact number", "Email", "Address",
+            "Room", "Booking type", "Check-in", "Check-out"
         };
 
         tableModel = new DefaultTableModel(columns, 0) {
@@ -206,7 +225,7 @@ public class GuestPanel extends JPanel {
         guestTable = new JTable(tableModel);
         guestTable.setFont(new Font("SansSerif", Font.PLAIN, 11));
         guestTable.setForeground(INK);
-        guestTable.setRowHeight(40);
+        guestTable.setRowHeight(48);
         guestTable.setShowVerticalLines(false);
         guestTable.setShowHorizontalLines(true);
         guestTable.setGridColor(ROW_LINE);
@@ -217,11 +236,28 @@ public class GuestPanel extends JPanel {
         guestTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         guestTable.setToolTipText("Double-click a guest to edit");
 
+        // The list keeps the order of the records: no sorting by column
+        guestTable.setAutoCreateRowSorter(false);
+        guestTable.setRowSorter(null);
+
         DefaultTableCellRenderer center = new DefaultTableCellRenderer();
         center.setHorizontalAlignment(SwingConstants.CENTER);
         for (int i = 0; i < guestTable.getColumnCount(); i++) {
             guestTable.getColumnModel().getColumn(i).setCellRenderer(center);
         }
+
+        // Column widths (the date columns hold two lines: standard time + actual time)
+        int[] widths = {100, 112, 118, 88, 42, 106, 126, 134};
+        for (int i = 0; i < widths.length; i++) {
+            guestTable.getColumnModel().getColumn(i).setPreferredWidth(widths[i]);
+        }
+
+        // Re-check the Check in button whenever another row is selected
+        guestTable.getSelectionModel().addListSelectionListener(e -> {
+            if (!e.getValueIsAdjusting()) {
+                updateCheckInButton();
+            }
+        });
 
         JTableHeader th = guestTable.getTableHeader();
         th.setReorderingAllowed(false);
@@ -308,28 +344,6 @@ public class GuestPanel extends JPanel {
     //  Actions
     // =====================================================================
 
-    private void addGuest() {
-
-        GuestDialog dialog = new GuestDialog(null, nextGuestId());
-        dialog.setVisible(true);
-
-        Guest guest = dialog.getResult();
-
-        if (guest == null) {
-            return;
-        }
-
-        try {
-            guestService.addGuest(guest);
-            refreshTable();
-
-            JOptionPane.showMessageDialog(this, "Guest added successfully.");
-
-        } catch (DuplicateRecordException | IllegalArgumentException e) {
-            showError(e.getMessage());
-        }
-    }
-
     private void editGuest() {
 
         Guest selected = getSelectedGuest();
@@ -341,11 +355,6 @@ public class GuestPanel extends JPanel {
 
         GuestDialog dialog = new GuestDialog(selected, selected.getGuestId());
         dialog.setVisible(true);
-
-        if (dialog.isDeleteRequested()) {
-            deleteGuest(selected);
-            return;
-        }
 
         Guest updated = dialog.getResult();
 
@@ -364,27 +373,7 @@ public class GuestPanel extends JPanel {
         }
     }
 
-    private void deleteGuest(Guest guest) {
-
-        ConfirmDeleteDialog confirm = new ConfirmDeleteDialog(guest.getFullName());
-        confirm.setVisible(true);
-
-        if (!confirm.isConfirmed()) {
-            return;
-        }
-
-        try {
-            guestService.deleteGuest(guest.getGuestId());
-            refreshTable();
-
-            JOptionPane.showMessageDialog(this, "Guest deleted successfully.");
-
-        } catch (IllegalArgumentException e) {
-            showError(e.getMessage());
-        }
-    }
-
-    private Guest getSelectedGuest() {
+    private GuestRow getSelectedRow() {
 
         int row = guestTable.getSelectedRow();
 
@@ -397,19 +386,70 @@ public class GuestPanel extends JPanel {
         return index < filtered.size() ? filtered.get(index) : null;
     }
 
-    /** Generates the next "G-0001" style ID so the form doesn't need an ID field. */
-    private String nextGuestId() {
+    private Guest getSelectedGuest() {
+        GuestRow row = getSelectedRow();
+        return row == null ? null : row.guest;
+    }
 
-        int max = 0;
+    // =====================================================================
+    //  Check-in (advance bookings only)
+    // =====================================================================
 
-        for (Guest g : guestService.searchGuests("")) {
-            String id = g.getGuestId();
-            if (id != null && id.matches("(?i)G-\\d+")) {
-                max = Math.max(max, Integer.parseInt(id.substring(2)));
-            }
+    /** Checks in the selected advance booking, recording the actual check-in time. */
+    private void checkInSelected() {
+
+        GuestRow row = getSelectedRow();
+
+        if (row == null || row.booking == null) {
+            showError("Please select a guest with a booking to check in.");
+            return;
         }
 
-        return String.format("G-%04d", max + 1);
+        try {
+            bookingService.checkInBooking(row.booking.getBookingId());
+            refreshTable();
+
+            JOptionPane.showMessageDialog(this,
+                row.guest.getFullName() + " checked in to room "
+                + row.booking.getRoomNumber() + ".");
+
+        } catch (InvalidBookingException e) {
+            showError(e.getMessage());
+            refreshTable();
+        }
+    }
+
+    /** Enables the Check in button only when the selected guest is eligible, and says why not otherwise. */
+    private void updateCheckInButton() {
+
+        if (checkInButton == null) {
+            return;
+        }
+
+        GuestRow row = getSelectedRow();
+        boolean eligible = false;
+        String tip;
+
+        if (row == null || row.booking == null) {
+            tip = "Select a guest with a booking.";
+        } else if (row.booking.isWalkIn()) {
+            tip = "Walk-in guests are checked in automatically.";
+        } else if ("Checked In".equalsIgnoreCase(row.booking.getBookingStatus())) {
+            tip = "This guest is already checked in.";
+        } else if ("Checked Out".equalsIgnoreCase(row.booking.getBookingStatus())) {
+            tip = "This guest has already checked out.";
+        } else if (bookingService.isEligibleForCheckIn(row.booking)) {
+            eligible = true;
+            tip = "Check this guest in now.";
+        } else if (LocalDate.now().equals(row.booking.getCheckInDate())) {
+            tip = "Check-in opens at " + Booking.STANDARD_CHECK_IN_TIME.format(TIME_FMT) + ".";
+        } else {
+            tip = "Check-in opens on " + row.booking.getCheckInDate().format(DAY_FMT)
+                + " at " + Booking.STANDARD_CHECK_IN_TIME.format(TIME_FMT) + ".";
+        }
+
+        checkInButton.setEnabled(eligible);
+        checkInButton.setToolTipText(tip);
     }
 
     // =====================================================================
@@ -436,7 +476,11 @@ public class GuestPanel extends JPanel {
 
         filtered.clear();
 
-        for (Guest g : guestService.searchGuests(keyword)) {
+        String search = keyword.toLowerCase();
+        List<Booking> allBookings = bookingService.getAllBookings();
+
+        // Guests come from the guest records; their stays come from confirmed bookings.
+        for (Guest g : guestService.getAllGuests()) {
 
             boolean noEmail = g.getEmail() == null || g.getEmail().isBlank();
             boolean noPhone = g.getPhoneNumber() == null || g.getPhoneNumber().isBlank();
@@ -444,7 +488,26 @@ public class GuestPanel extends JPanel {
             if (filter.equals("Missing email") && !noEmail) continue;
             if (filter.equals("Missing phone") && !noPhone) continue;
 
-            filtered.add(g);
+            List<Booking> stays = new ArrayList<>();
+            for (Booking b : allBookings) {
+                boolean cancelled = "Cancelled".equalsIgnoreCase(b.getBookingStatus());
+                if (!cancelled && b.getGuestId().equalsIgnoreCase(g.getGuestId())) {
+                    stays.add(b);
+                }
+            }
+
+            if (stays.isEmpty()) {
+                if (matches(g, null, search)) {
+                    filtered.add(new GuestRow(g, null));
+                }
+                continue;
+            }
+
+            for (Booking b : stays) {
+                if (matches(g, b, search)) {
+                    filtered.add(new GuestRow(g, b));
+                }
+            }
         }
 
         if (currentPage >= pageCount()) {
@@ -457,24 +520,102 @@ public class GuestPanel extends JPanel {
         int end = Math.min(start + PAGE_SIZE, filtered.size());
 
         for (int i = start; i < end; i++) {
-            Guest g = filtered.get(i);
+            GuestRow row = filtered.get(i);
+            Guest g = row.guest;
+            Booking b = row.booking;
+
             tableModel.addRow(new Object[] {
                 g.getFullName(),
                 g.getPhoneNumber(),
                 g.getEmail(),
-                g.getAddress()
+                g.getAddress(),
+                b == null ? "\u2014" : b.getRoomNumber(),
+                b == null ? "\u2014" : b.getBookingType(),
+                b == null ? "\u2014" : checkInText(b),
+                b == null ? "\u2014" : checkOutText(b)
             });
         }
 
         int total = filtered.size();
 
-        countLabel.setText(total + (total == 1 ? " guest profile" : " guest profiles"));
+        // Count guests (a guest with two stays has two rows but is one profile)
+        java.util.Set<String> guestIds = new java.util.HashSet<>();
+        for (GuestRow row : filtered) {
+            guestIds.add(row.guest.getGuestId());
+        }
+        int profiles = guestIds.size();
+
+        countLabel.setText(profiles + (profiles == 1 ? " guest profile" : " guest profiles"));
         showingLabel.setText(total == 0
             ? "No guests found"
-            : "Showing " + (start + 1) + "\u2013" + end + " of " + total + " guests");
+            : "Showing " + (start + 1) + "\u2013" + end + " of " + total
+              + (total == 1 ? " guest record" : " guest records"));
         pageLabel.setText(String.valueOf(currentPage + 1));
         prevButton.setEnabled(currentPage > 0);
         nextButton.setEnabled(currentPage < pageCount() - 1);
+
+        updateCheckInButton();
+    }
+
+    /** Search by name, email, phone, room number or booking type. */
+    private boolean matches(Guest g, Booking b, String search) {
+
+        if (search.isEmpty()) {
+            return true;
+        }
+
+        return g.getGuestId().toLowerCase().contains(search)
+            || g.getFullName().toLowerCase().contains(search)
+            || g.getEmail().toLowerCase().contains(search)
+            || g.getPhoneNumber().toLowerCase().contains(search)
+            || (b != null && b.getRoomNumber().toLowerCase().contains(search))
+            || (b != null && b.getBookingType().toLowerCase().contains(search));
+    }
+
+    // Check-in cell: scheduled date + standard time (2:00 PM), then the actual check-in.
+    private String checkInText(Booking b) {
+
+        String standard = b.getCheckInDate().format(DAY_FMT)
+            + " \u00B7 " + Booking.STANDARD_CHECK_IN_TIME.format(TIME_FMT);
+
+        LocalDateTime actual = b.getActualCheckIn();
+        String status;
+
+        if (actual != null) {
+            status = "Actual: " + actual.format(STAMP_FMT);
+        } else if ("Checked In".equalsIgnoreCase(b.getBookingStatus())
+                || "Checked Out".equalsIgnoreCase(b.getBookingStatus())) {
+            status = "Checked in"; // saved before times were tracked, so no clock time to show
+        } else {
+            status = "Not yet checked in";
+        }
+
+        return twoLines(standard, status);
+    }
+
+    // Check-out cell: scheduled date + standard time (11:00 AM), then the actual check-out.
+    private String checkOutText(Booking b) {
+
+        String standard = b.getCheckOutDate().format(DAY_FMT)
+            + " \u00B7 " + Booking.STANDARD_CHECK_OUT_TIME.format(TIME_FMT);
+
+        LocalDateTime actual = b.getActualCheckOut();
+        String status;
+
+        if (actual != null) {
+            status = "Actual: " + actual.format(STAMP_FMT);
+        } else if ("Checked Out".equalsIgnoreCase(b.getBookingStatus())) {
+            status = "Checked out"; // saved before times were tracked
+        } else {
+            status = "Not yet checked out";
+        }
+
+        return twoLines(standard, status);
+    }
+
+    private static String twoLines(String main, String note) {
+        return "<html><div style='text-align:center'>" + main
+            + "<br><font color='" + MUTED_HEX + "' size='2'>" + note + "</font></div></html>";
     }
 
     private void showError(String message) {
@@ -485,11 +626,10 @@ public class GuestPanel extends JPanel {
     //  Dialogs
     // =====================================================================
 
-    /** Add / Edit guest form (first + last name, email, contact, address). */
+    /** Edit guest form (first + last name, email, contact, address). */
     private class GuestDialog extends JDialog {
 
         private final String guestId;
-        private final boolean editing;
 
         private final JTextField firstField = formField("Enter first name");
         private final JTextField lastField = formField("Enter last name");
@@ -499,30 +639,26 @@ public class GuestPanel extends JPanel {
         private final JLabel errorLabel = new JLabel(" ");
 
         private Guest result;
-        private boolean deleteRequested;
 
         GuestDialog(Guest existing, String guestId) {
             super(SwingUtilities.getWindowAncestor(GuestPanel.this),
-                  existing == null ? "Add a guest" : "Edit guest",
+                  "Edit guest",
                   ModalityType.APPLICATION_MODAL);
 
             this.guestId = guestId;
-            this.editing = existing != null;
 
             setUndecorated(true);
 
             ((javax.swing.text.AbstractDocument) phoneField.getDocument())
                 .setDocumentFilter(new PhoneFilter());
 
-            if (editing) {
-                String full = existing.getFullName() == null ? "" : existing.getFullName().trim();
-                int split = full.lastIndexOf(' ');
-                firstField.setText(split < 0 ? full : full.substring(0, split));
-                lastField.setText(split < 0 ? "" : full.substring(split + 1));
-                emailField.setText(existing.getEmail());
-                phoneField.setText(existing.getPhoneNumber());
-                addressField.setText(existing.getAddress());
-            }
+            String full = existing.getFullName() == null ? "" : existing.getFullName().trim();
+            int split = full.lastIndexOf(' ');
+            firstField.setText(split < 0 ? full : full.substring(0, split));
+            lastField.setText(split < 0 ? "" : full.substring(split + 1));
+            emailField.setText(existing.getEmail());
+            phoneField.setText(existing.getPhoneNumber());
+            addressField.setText(existing.getAddress());
 
             JPanel root = new JPanel();
             root.setLayout(new BoxLayout(root, BoxLayout.Y_AXIS));
@@ -532,13 +668,11 @@ public class GuestPanel extends JPanel {
                 BorderFactory.createEmptyBorder(22, 22, 20, 22)
             ));
 
-            JLabel title = new JLabel(editing ? "Edit guest" : "Add a guest");
+            JLabel title = new JLabel("Edit guest");
             title.setFont(new Font("SansSerif", Font.BOLD, 20));
             title.setForeground(INK);
 
-            JLabel subtitle = new JLabel(editing
-                ? "Update this guest's profile."
-                : "Create a guest profile for a future stay.");
+            JLabel subtitle = new JLabel("Update this guest's profile.");
             subtitle.setFont(new Font("SansSerif", Font.PLAIN, 12));
             subtitle.setForeground(MUTED);
 
@@ -571,56 +705,33 @@ public class GuestPanel extends JPanel {
             errorLabel.setForeground(DANGER);
             root.add(left(errorLabel));
 
-            if (editing) {
-                JPanel note = new JPanel(new BorderLayout());
-                note.setBackground(FIELD_BG);
-                note.setBorder(BorderFactory.createEmptyBorder(14, 12, 14, 12));
-                JLabel noteText = new JLabel("Guest details are used only for hotel operations.");
-                noteText.setFont(new Font("SansSerif", Font.PLAIN, 10));
-                noteText.setForeground(MUTED);
-                note.add(noteText, BorderLayout.WEST);
-                root.add(left(note));
-                root.add(Box.createVerticalStrut(18));
-
-                JButton delete = styledButton("Delete guest", ButtonKind.DANGER);
-                delete.setPreferredSize(new Dimension(100, 38));
-                delete.addActionListener(e -> {
-                    deleteRequested = true;
-                    dispose();
-                });
-                JPanel deleteRow = new JPanel(new BorderLayout());
-                deleteRow.setOpaque(false);
-                deleteRow.add(delete, BorderLayout.CENTER);
-                root.add(left(deleteRow));
-                root.add(Box.createVerticalStrut(10));
-            } else {
-                root.add(Box.createVerticalStrut(10));
-            }
+            JPanel note = new JPanel(new BorderLayout());
+            note.setBackground(FIELD_BG);
+            note.setBorder(BorderFactory.createEmptyBorder(14, 12, 14, 12));
+            JLabel noteText = new JLabel("Guest details are used only for hotel operations.");
+            noteText.setFont(new Font("SansSerif", Font.PLAIN, 10));
+            noteText.setForeground(MUTED);
+            note.add(noteText, BorderLayout.WEST);
+            root.add(left(note));
+            root.add(Box.createVerticalStrut(18));
 
             JButton cancel = styledButton("Cancel", ButtonKind.OUTLINE);
             cancel.setPreferredSize(new Dimension(110, 40));
             cancel.addActionListener(e -> dispose());
 
-            JButton save = styledButton(editing ? "Save changes" : "Add guest", ButtonKind.PRIMARY);
-            save.setPreferredSize(new Dimension(editing ? 220 : 130, 40));
+            JButton save = styledButton("Save changes", ButtonKind.PRIMARY);
+            save.setPreferredSize(new Dimension(220, 40));
             save.addActionListener(e -> submit());
 
-            JPanel buttons;
-            if (editing) {
-                buttons = new JPanel(new BorderLayout(12, 0));
-                buttons.add(cancel, BorderLayout.WEST);
-                buttons.add(save, BorderLayout.CENTER);
-            } else {
-                buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 12, 0));
-                buttons.add(cancel);
-                buttons.add(save);
-            }
+            JPanel buttons = new JPanel(new BorderLayout(12, 0));
+            buttons.add(cancel, BorderLayout.WEST);
+            buttons.add(save, BorderLayout.CENTER);
             buttons.setOpaque(false);
             root.add(left(buttons));
 
             getRootPane().setDefaultButton(save);
             setContentPane(root);
-            setMinimumSize(new Dimension(editing ? 400 : 520, 0));
+            setMinimumSize(new Dimension(400, 0));
             pack();
             setLocationRelativeTo(GuestPanel.this);
         }
@@ -659,81 +770,6 @@ public class GuestPanel extends JPanel {
         }
 
         Guest getResult() { return result; }
-
-        boolean isDeleteRequested() { return deleteRequested; }
-    }
-
-    /** "CONFIRM DELETION" dialog. */
-    private class ConfirmDeleteDialog extends JDialog {
-
-        private boolean confirmed;
-
-        ConfirmDeleteDialog(String guestName) {
-            super(SwingUtilities.getWindowAncestor(GuestPanel.this),
-                  "Confirm Deletion", ModalityType.APPLICATION_MODAL);
-
-            setUndecorated(true);
-
-            JPanel root = new JPanel();
-            root.setLayout(new BoxLayout(root, BoxLayout.Y_AXIS));
-            root.setBackground(Color.WHITE);
-            root.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(CARD_BORDER),
-                BorderFactory.createEmptyBorder(24, 26, 22, 26)
-            ));
-
-            JLabel tag = new JLabel("CONFIRM DELETION");
-            tag.setFont(new Font("SansSerif", Font.BOLD, 10));
-            tag.setForeground(DANGER);
-            tag.setOpaque(true);
-            tag.setBackground(DANGER_BG);
-            tag.setBorder(BorderFactory.createEmptyBorder(7, 10, 7, 10));
-
-            JLabel title = new JLabel("Delete " + guestName + "?");
-            title.setFont(new Font("SansSerif", Font.BOLD, 20));
-            title.setForeground(INK);
-
-            JLabel line1 = new JLabel("This guest profile will be permanently removed.");
-            line1.setFont(new Font("SansSerif", Font.PLAIN, 12));
-            line1.setForeground(MUTED);
-
-            JLabel warning = new JLabel("This action cannot be undone.");
-            warning.setFont(new Font("SansSerif", Font.PLAIN, 12));
-            warning.setForeground(DANGER);
-
-            root.add(left(tag));
-            root.add(Box.createVerticalStrut(18));
-            root.add(left(title));
-            root.add(Box.createVerticalStrut(16));
-            root.add(left(line1));
-            root.add(Box.createVerticalStrut(14));
-            root.add(left(warning));
-            root.add(Box.createVerticalStrut(24));
-
-            JButton cancel = styledButton("Cancel", ButtonKind.OUTLINE);
-            cancel.setPreferredSize(new Dimension(110, 40));
-            cancel.addActionListener(e -> dispose());
-
-            JButton delete = styledButton("Delete guest", ButtonKind.PRIMARY);
-            delete.setPreferredSize(new Dimension(150, 40));
-            delete.addActionListener(e -> {
-                confirmed = true;
-                dispose();
-            });
-
-            JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 12, 0));
-            buttons.setOpaque(false);
-            buttons.add(cancel);
-            buttons.add(delete);
-            root.add(left(buttons));
-
-            setContentPane(root);
-            setMinimumSize(new Dimension(440, 0));
-            pack();
-            setLocationRelativeTo(GuestPanel.this);
-        }
-
-        boolean isConfirmed() { return confirmed; }
     }
 
     // =====================================================================

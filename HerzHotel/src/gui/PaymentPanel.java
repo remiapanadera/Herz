@@ -1,6 +1,5 @@
 package gui;
 
-import exception.DuplicateRecordException;
 import model.Booking;
 import model.Payment;
 import service.BookingService;

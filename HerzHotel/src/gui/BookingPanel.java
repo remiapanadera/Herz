@@ -251,7 +251,17 @@ public class BookingPanel extends JPanel {
         contactField.setEditable(false);
         contactField.setBackground(FIELD_BG);
 
-        addPair(card, 2, labeled("Guest name", guestBox), labeled("Contact number", contactField));
+        // Guests are only created here, as part of a booking
+        JButton newGuestButton = button("+ New guest", ButtonKind.OUTLINE);
+        newGuestButton.setPreferredSize(new Dimension(100, 40));
+        newGuestButton.addActionListener(e -> addNewGuest());
+
+        JPanel guestPicker = new JPanel(new BorderLayout(8, 0));
+        guestPicker.setOpaque(false);
+        guestPicker.add(guestBox, BorderLayout.CENTER);
+        guestPicker.add(newGuestButton, BorderLayout.EAST);
+
+        addPair(card, 2, labeled("Guest name", guestPicker), labeled("Contact number", contactField));
 
         // --- room + guests ---
         roomBox = new JComboBox<>();
@@ -538,7 +548,7 @@ public class BookingPanel extends JPanel {
         Room room = (Room) roomBox.getSelectedItem();
 
         if (guest == null) {
-            showError("Please add a guest on the Guests page first.");
+            showError("Please select a guest, or add one with \"+ New guest\".");
             return;
         }
         if (room == null) {
@@ -565,13 +575,17 @@ public class BookingPanel extends JPanel {
                 room.getRoomNumber(),
                 checkIn,
                 checkOut,
-                "Reserved"
+                "Reserved",
+                walkIn ? Booking.TYPE_WALK_IN : Booking.TYPE_ADVANCE,
+                null,
+                null
             );
 
             bookingService.addBooking(booking);
 
+            // Walk-in guests are checked in automatically once the booking is confirmed
             if (walkIn) {
-                bookingService.checkInBooking(booking.getBookingId());
+                bookingService.checkInWalkIn(booking.getBookingId());
             }
 
             currentBooking = booking;
@@ -587,6 +601,49 @@ public class BookingPanel extends JPanel {
 
             showError(e.getMessage());
         }
+    }
+
+    /** Opens the "New guest" form, saves the guest and selects them for this booking. */
+    private void addNewGuest() {
+
+        GuestFormDialog dialog = new GuestFormDialog(this, nextGuestId());
+        dialog.setVisible(true);
+
+        Guest guest = dialog.getResult();
+
+        if (guest == null) {
+            return;
+        }
+
+        try {
+            guestService.addGuest(guest);
+            refreshTable();
+
+            for (int i = 0; i < guestBox.getItemCount(); i++) {
+                if (guestBox.getItemAt(i).getGuestId().equals(guest.getGuestId())) {
+                    guestBox.setSelectedIndex(i);
+                    break;
+                }
+            }
+
+        } catch (DuplicateRecordException | IllegalArgumentException e) {
+            showError(e.getMessage());
+        }
+    }
+
+    /** Generates the next "G-0001" style guest ID. */
+    private String nextGuestId() {
+
+        int max = 0;
+
+        for (Guest g : guestService.getAllGuests()) {
+            String id = g.getGuestId();
+            if (id != null && id.matches("(?i)G-\\d+")) {
+                max = Math.max(max, Integer.parseInt(id.substring(2)));
+            }
+        }
+
+        return String.format("G-%04d", max + 1);
     }
 
     private void checkIn() {

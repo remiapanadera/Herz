@@ -143,7 +143,8 @@ public class MainFrame extends JFrame {
         );
 
         guestPanel = new GuestPanel(
-            hotelSystem.getGuestService()
+            hotelSystem.getGuestService(),
+            hotelSystem.getBookingService()
         );
 
         roomPanel = new RoomPanel(
@@ -675,11 +676,11 @@ public class MainFrame extends JFrame {
                     g2.drawLine(1, 8, 17, 8);
                     g2.drawLine(4, 12, 8, 12);
                     break;
-                case "logout": {          // door + arrow
+                case "logout": {          // door on the right + arrow pointing left (out of the door)
                     Path2D door = new Path2D.Float();
-                    door.moveTo(7, 2);  door.lineTo(3, 2);  door.lineTo(3, 16);  door.lineTo(7, 16);
-                    door.moveTo(7, 9);  door.lineTo(16, 9);
-                    door.moveTo(13, 6); door.lineTo(16, 9); door.lineTo(13, 12);
+                    door.moveTo(11, 2); door.lineTo(15, 2); door.lineTo(15, 16); door.lineTo(11, 16);
+                    door.moveTo(11, 9); door.lineTo(2, 9);
+                    door.moveTo(5, 6);  door.lineTo(2, 9);  door.lineTo(5, 12);
                     g2.draw(door);
                     break;
                 }
