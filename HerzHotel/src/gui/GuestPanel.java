@@ -782,6 +782,7 @@ public class GuestPanel extends JPanel {
             }
         };
 
+        button.setMargin(new Insets(0, 0, 0, 0));
         button.setFont(new Font("SansSerif", Font.PLAIN, 12));
         button.setContentAreaFilled(false);
         button.setBorderPainted(false);

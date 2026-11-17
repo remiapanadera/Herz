@@ -56,13 +56,11 @@ public class MainFrame extends JFrame {
     private NavButton guestsButton;
     private NavButton roomsButton;
     private NavButton bookingsButton;
-    private NavButton paymentsButton;
 
     private DashboardPanel dashboardPanel;
     private GuestPanel guestPanel;
     private RoomPanel roomPanel;
     private BookingPanel bookingPanel;
-    private PaymentPanel paymentPanel;
 
     // The login screen passes in the username that was typed
     public MainFrame(String username) {
@@ -117,7 +115,6 @@ public class MainFrame extends JFrame {
         contentPanel.add(guestPanel, "Guests");
         contentPanel.add(roomPanel, "Rooms");
         contentPanel.add(bookingPanel, "Bookings");
-        contentPanel.add(paymentPanel, "Payments");
 
         // Right side = top bar (north) + current page (center) + footer (south)
         JPanel rightSide = new JPanel(new BorderLayout());
@@ -156,13 +153,12 @@ public class MainFrame extends JFrame {
         bookingPanel = new BookingPanel(
             hotelSystem.getBookingService(),
             hotelSystem.getGuestService(),
-            hotelSystem.getRoomService()
+            hotelSystem.getRoomService(),
+            hotelSystem.getPaymentService()
         );
 
-        paymentPanel = new PaymentPanel(
-            hotelSystem.getPaymentService(),
-            hotelSystem.getBookingService()
-        );
+        // The receipt's "Received by" line shows the logged-in user
+        bookingPanel.setReceivedBy(username);
     }
 
     // =====================================================================
@@ -195,13 +191,11 @@ public class MainFrame extends JFrame {
         guestsButton    = new NavButton("Guests", "guests");
         roomsButton     = new NavButton("Rooms", "rooms");
         bookingsButton  = new NavButton("Bookings", "bookings");
-        paymentsButton  = new NavButton("Payments", "payments");
 
         addNavigation(sidebar, dashboardButton, "Dashboard");
         addNavigation(sidebar, guestsButton, "Guests");
         addNavigation(sidebar, roomsButton, "Rooms");
         addNavigation(sidebar, bookingsButton, "Bookings");
-        addNavigation(sidebar, paymentsButton, "Payments");
 
         sidebar.add(Box.createVerticalGlue());
 
@@ -411,7 +405,6 @@ public class MainFrame extends JFrame {
         guestsButton.setActive(false);
         roomsButton.setActive(false);
         bookingsButton.setActive(false);
-        paymentsButton.setActive(false);
 
         switch (pageName) {
 
@@ -433,11 +426,6 @@ public class MainFrame extends JFrame {
             case "Bookings":
                 bookingsButton.setActive(true);
                 bookingPanel.refreshTable();
-                break;
-
-            case "Payments":
-                paymentsButton.setActive(true);
-                paymentPanel.refreshTable();
                 break;
 
             default:
