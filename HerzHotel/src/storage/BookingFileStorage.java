@@ -8,6 +8,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
@@ -50,7 +51,10 @@ public class BookingFileStorage implements FileSavable {
                     + encode(booking.getRoomNumber()) + "|"
                     + booking.getCheckInDate() + "|"
                     + booking.getCheckOutDate() + "|"
-                    + encode(booking.getBookingStatus());
+                    + encode(booking.getBookingStatus()) + "|"
+                    + encode(booking.getBookingType()) + "|"
+                    + (booking.getActualCheckIn() == null ? "" : booking.getActualCheckIn()) + "|"
+                    + (booking.getActualCheckOut() == null ? "" : booking.getActualCheckOut());
 
             lines.add(line);
         }
@@ -82,25 +86,35 @@ public class BookingFileStorage implements FileSavable {
 
             String[] fields = line.split("\\|", -1);
 
-            if (fields.length != 6) {
+            // 6 fields = older file (no type / actual times), 9 fields = current format
+            if (fields.length != 6 && fields.length != 9) {
                 throw new IOException(
                         "Invalid booking record in storage file."
                 );
             }
 
             try {
+                String type = fields.length == 9 ? decode(fields[6]) : Booking.TYPE_ADVANCE;
+                LocalDateTime actualIn = fields.length == 9 && !fields[7].isEmpty()
+                        ? LocalDateTime.parse(fields[7]) : null;
+                LocalDateTime actualOut = fields.length == 9 && !fields[8].isEmpty()
+                        ? LocalDateTime.parse(fields[8]) : null;
+
                 Booking booking = new Booking(
                         decode(fields[0]),
                         decode(fields[1]),
                         decode(fields[2]),
                         LocalDate.parse(fields[3]),
                         LocalDate.parse(fields[4]),
-                        decode(fields[5])
+                        decode(fields[5]),
+                        type,
+                        actualIn,
+                        actualOut
                 );
 
                 bookings.add(booking);
 
-            } catch (IllegalArgumentException e) {
+            } catch (IllegalArgumentException | java.time.DateTimeException e) {
                 throw new IOException(
                         "Unable to read a booking record.",
                         e

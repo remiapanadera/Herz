@@ -25,9 +25,9 @@ public class LoginFrame extends JFrame {
     private static final Color BTN_COLOR    = new Color(74, 0, 0);      // burgundy button
     private static final Color BTN_HOVER    = new Color(100, 10, 10);   // button on mouse hover
 
-    // ---------- Photo location (put your Mayon photo here) ----------
-    private static final String IMAGE_RESOURCE = "/images/mayon.jpg"; // inside src/images
-    private static final String IMAGE_FILE     = "images/mayon.jpg";  // or project folder
+    // ---------- Photo location (mayon.jpg sits in the gui package folder, next to logo.png) ----------
+    private static final String IMAGE_RESOURCE = "/gui/mayon.jpg";    // inside the gui package folder
+    private static final String IMAGE_FILE     = "src/gui/mayon.jpg"; // or project folder path
 
     // ---------- Logo image (optional, replaces the text logo) ----------
     private static final String LOGO_RESOURCE = "/gui/logo.png";    // inside the gui package folder
@@ -39,7 +39,6 @@ public class LoginFrame extends JFrame {
 
     private JTextField usernameField;
     private JPasswordField passwordField;
-    private JCheckBox keepSignedInCheckBox;
 
     public LoginFrame() {
         // Basic window settings
@@ -206,13 +205,7 @@ public class LoginFrame extends JFrame {
         });
         RoundedPanel passwordBox = fieldBox(passwordField, showButton);
 
-        // --- Row: "Keep me signed in" on the left, "Forgot password?" on the right ---
-        keepSignedInCheckBox = new JCheckBox("Keep me signed in");
-        keepSignedInCheckBox.setOpaque(false);
-        keepSignedInCheckBox.setForeground(MUTED);
-        keepSignedInCheckBox.setFont(font("SansSerif", Font.PLAIN, 11, "Inter"));
-        keepSignedInCheckBox.setFocusPainted(false);
-
+        // --- Row: "Forgot password?" on the right ---
         JLabel forgot = new JLabel("Forgot password?");
         forgot.setFont(font("SansSerif", Font.PLAIN, 11, "Inter"));
         forgot.setForeground(GOLD);
@@ -227,7 +220,6 @@ public class LoginFrame extends JFrame {
 
         JPanel optionsRow = new JPanel(new BorderLayout());
         optionsRow.setOpaque(false);
-        optionsRow.add(keepSignedInCheckBox, BorderLayout.WEST);
         optionsRow.add(forgot, BorderLayout.EAST);
         optionsRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 28));
         optionsRow.setAlignmentX(Component.LEFT_ALIGNMENT);
