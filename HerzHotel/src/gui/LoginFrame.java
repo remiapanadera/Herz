@@ -527,14 +527,33 @@ public class LoginFrame extends JFrame {
     }
 
     // =====================================================================
+    //  ACCOUNTS: each row is { username, password }.
+    //  To add or change an account, edit or copy one of these lines.
+    // =====================================================================
+    private static final String[][] ACCOUNTS = {
+        { "Trisha Dajac",  "admin123" },
+        { "Heini Llaneta",   "admin12" },   
+        { "Remia Panadera",    "admin1" }
+    };
+
+    // True if the typed username + password match one of the accounts above
+    private static boolean isValidLogin(String username, String password) {
+        for (String[] account : ACCOUNTS) {
+            if (account[0].equals(username) && account[1].equals(password)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // =====================================================================
     //  LOGIN LOGIC
     // =====================================================================
     private void handleLogin() {
         String username = usernameField.getText().trim();
         String password = new String(passwordField.getPassword());
 
-        // Temporary demonstration credentials.
-        if (username.equals("Trisha Dajac") && password.equals("admin123")) {
+        if (isValidLogin(username, password)) {
             JOptionPane.showMessageDialog(this, "Welcome to Herz Hotel!",
                 "Login Successful", JOptionPane.INFORMATION_MESSAGE);
 
