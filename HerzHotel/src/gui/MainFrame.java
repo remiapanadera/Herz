@@ -40,7 +40,6 @@ public class MainFrame extends JFrame {
 
     // ---------- Logo image (same file as the login screen) ----------
     private static final String LOGO_RESOURCE = "/gui/logo.png";
-    private static final String LOGO_FILE     = "src/gui/logo.png";
     private static final int LOGO_WIDTH       = 56;
 
     // ---------- Role shown under the user's name in the top bar ----------
@@ -136,7 +135,7 @@ public class MainFrame extends JFrame {
         showPage("Dashboard");
     }
 
-   private void initializePanels() {
+    private void initializePanels() {
 
         dashboardPanel = new DashboardPanel(
             hotelSystem.getReportService()
@@ -162,7 +161,7 @@ public class MainFrame extends JFrame {
         // The receipt's "Received by" line shows the logged-in user
         bookingPanel.setReceivedBy(username);
     }
-    
+
     // =====================================================================
     //  SIDEBAR
     // =====================================================================
@@ -201,7 +200,7 @@ public class MainFrame extends JFrame {
 
         sidebar.add(Box.createVerticalGlue());
 
-        // --- Logout at the bottom ---
+        // --- Log out at the bottom ---
         NavButton logoutButton = new NavButton("Log out", "logout");
         logoutButton.setAlignmentX(Component.LEFT_ALIGNMENT);
         logoutButton.addActionListener(e -> logout());
@@ -231,7 +230,7 @@ public class MainFrame extends JFrame {
         return sidebar;
     }
 
-    // Logo image + "erz" + HOTEL (falls back to a text logo if there is no logo file)
+    // Logo image + "erz" + HOTEL (falls back to "Herz" text if the logo file is missing)
     private JPanel createLogoBlock() {
         JPanel logo = new JPanel();
         logo.setOpaque(false);
@@ -244,7 +243,7 @@ public class MainFrame extends JFrame {
         hotel.setForeground(Color.WHITE);
         hotel.setAlignmentX(Component.LEFT_ALIGNMENT);
 
-        BufferedImage logoImage = loadImage(LOGO_RESOURCE, LOGO_FILE);
+        BufferedImage logoImage = loadLogoImage();
         if (logoImage != null) {
             int logoHeight = LOGO_WIDTH * logoImage.getHeight() / logoImage.getWidth();
             JLabel image = new JLabel(new ImageIcon(scaleImage(logoImage, LOGO_WIDTH, logoHeight)));
@@ -267,7 +266,7 @@ public class MainFrame extends JFrame {
             logo.add(row);
             logo.add(hotel);
         } else {
-            JLabel text = new JLabel("♡ Herz");
+            JLabel text = new JLabel("Herz");
             text.setFont(font("Serif", Font.ITALIC, 28, "Playfair Display"));
             text.setForeground(Color.WHITE);
             text.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -436,7 +435,7 @@ public class MainFrame extends JFrame {
     }
 
     // =====================================================================
-    //  EXIT + LOGOUT (unchanged)
+    //  EXIT + LOGOUT
     // =====================================================================
     private void saveAndExit() {
 
@@ -486,7 +485,7 @@ public class MainFrame extends JFrame {
         int choice = JOptionPane.showConfirmDialog(
             this,
             "Save your changes and log out?",
-            "Logout",
+            "Log out",
             JOptionPane.YES_NO_CANCEL_OPTION
         );
 
@@ -539,13 +538,79 @@ public class MainFrame extends JFrame {
         return base.deriveFont(attrs);
     }
 
+    // Automatically locates logo.jpg (or any logo.* file) anywhere in the project folder
+    private static BufferedImage loadLogoImage() {
+        String[] resources = {
+            LOGO_RESOURCE, "/logo.jpg", "/assets/logo.jpg", "/images/logo.jpg",
+            "/util/logo.jpg", "/gui/logo.png", "/logo.png"
+        };
+        for (String res : resources) {
+            BufferedImage img = loadImage(res, null);
+            if (img != null) return img;
+        }
+
+        File found = findLogoFile(new File(System.getProperty("user.dir")), 4);
+        if (found == null && new File("..").exists()) {
+            found = findLogoFile(new File(".."), 4);
+        }
+        if (found != null) {
+            BufferedImage img = loadImage(null, found.getPath());
+            if (img != null) return img;
+
+            Image raw = Toolkit.getDefaultToolkit().getImage(found.getAbsolutePath());
+            MediaTracker tracker = new MediaTracker(new Canvas());
+            tracker.addImage(raw, 0);
+            try {
+                tracker.waitForID(0);
+                if (raw.getWidth(null) > 0 && raw.getHeight(null) > 0) {
+                    BufferedImage buf = new BufferedImage(
+                        raw.getWidth(null), raw.getHeight(null), BufferedImage.TYPE_INT_ARGB
+                    );
+                    Graphics2D g2 = buf.createGraphics();
+                    g2.drawImage(raw, 0, 0, null);
+                    g2.dispose();
+                    return buf;
+                }
+            } catch (InterruptedException ignored) { }
+        }
+        return null;
+    }
+
+    private static File findLogoFile(File dir, int depth) {
+        if (depth < 0 || dir == null || !dir.isDirectory()) return null;
+        File[] children = dir.listFiles();
+        if (children == null) return null;
+
+        for (File f : children) {
+            if (f.isFile()) {
+                String lower = f.getName().toLowerCase();
+                if (lower.startsWith("logo")
+                        && (lower.endsWith(".jpg") || lower.endsWith(".jpeg")
+                            || lower.endsWith(".png") || lower.endsWith(".gif"))) {
+                    return f;
+                }
+            }
+        }
+        for (File f : children) {
+            if (f.isDirectory() && !f.getName().startsWith(".") && !f.getName().equals("bin")) {
+                File match = findLogoFile(f, depth - 1);
+                if (match != null) return match;
+            }
+        }
+        return null;
+    }
+
     // Loads an image from the classpath or project folder; returns null if not found
     private static BufferedImage loadImage(String resource, String file) {
         try {
-            URL url = MainFrame.class.getResource(resource);
-            if (url != null) return ImageIO.read(url);
-            File f = new File(file);
-            if (f.exists()) return ImageIO.read(f);
+            if (resource != null) {
+                URL url = MainFrame.class.getResource(resource);
+                if (url != null) return ImageIO.read(url);
+            }
+            if (file != null) {
+                File f = new File(file);
+                if (f.exists()) return ImageIO.read(f);
+            }
         } catch (Exception ignored) { }
         return null;
     }

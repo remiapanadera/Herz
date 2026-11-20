@@ -1,11 +1,6 @@
-<<<<<<< HEAD
 MTAx|U3RhbmRhcmQ=|1500.0|QXZhaWxhYmxl
 MTAy|U3RhbmRhcmQ=|1500.0|QXZhaWxhYmxl
-=======
-MTAx|U3RhbmRhcmQ=|1500.0|UmVzZXJ2ZWQ=
-MTAy|U3RhbmRhcmQ=|1500.0|UmVzZXJ2ZWQ=
->>>>>>> 8a21d342b088bd800d94f50d0ceb52b9af9cc834
-MTAz|U3RhbmRhcmQ=|1500.0|QXZhaWxhYmxl
+MTAz|U3RhbmRhcmQ=|1500.0|T2NjdXBpZWQ=
 MTA0|U3RhbmRhcmQ=|1500.0|QXZhaWxhYmxl
 MTA1|U3RhbmRhcmQ=|1500.0|QXZhaWxhYmxl
 MTA2|U3RhbmRhcmQ=|1500.0|QXZhaWxhYmxl
@@ -20,14 +15,14 @@ MjA2|U3RhbmRhcmQ=|1500.0|QXZhaWxhYmxl
 MjA3|U3RhbmRhcmQ=|1500.0|QXZhaWxhYmxl
 MjA4|U3RhbmRhcmQ=|1500.0|QXZhaWxhYmxl
 MzAx|RGVsdXhl|2500.0|QXZhaWxhYmxl
-MzAy|RGVsdXhl|2500.0|QXZhaWxhYmxl
+MzAy|RGVsdXhl|2500.0|UmVzZXJ2ZWQ=
 MzAz|RGVsdXhl|2500.0|QXZhaWxhYmxl
 MzA0|RGVsdXhl|2500.0|QXZhaWxhYmxl
 MzA1|RGVsdXhl|2500.0|QXZhaWxhYmxl
 MzA2|RGVsdXhl|2500.0|QXZhaWxhYmxl
 MzA3|RGVsdXhl|2500.0|QXZhaWxhYmxl
 MzA4|RGVsdXhl|2500.0|QXZhaWxhYmxl
-NDAx|U3VpdGU=|4000.0|T2NjdXBpZWQ=
+NDAx|U3VpdGU=|4000.0|QXZhaWxhYmxl
 NDAy|U3VpdGU=|4000.0|QXZhaWxhYmxl
 NDAz|U3VpdGU=|4000.0|QXZhaWxhYmxl
 NDA0|U3VpdGU=|4000.0|QXZhaWxhYmxl

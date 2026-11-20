@@ -15,10 +15,6 @@ import javax.swing.border.AbstractBorder;
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
 import javax.swing.table.JTableHeader;
-import javax.swing.text.AbstractDocument;
-import javax.swing.text.AttributeSet;
-import javax.swing.text.BadLocationException;
-import javax.swing.text.DocumentFilter;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -33,8 +29,8 @@ import java.util.Locale;
 /**
  * Screen 3: Guest Management.
  * - Displays guest profiles paired with their active bookings (Room column first).
- * - Cancelling a booking releases the room, records the PHP 500 cancellation fee in
- *   PaymentService, and hides the cancelled booking/guest row from Guest Management.
+ * - Cancelling a booking releases the room, locks the PHP 500 cash cancellation fee,
+ *   records it in PaymentService, and hides the cancelled row from Guest Management.
  */
 public class GuestPanel extends JPanel {
 
@@ -55,14 +51,15 @@ public class GuestPanel extends JPanel {
     private static final Color DANGER_LINE  = new Color(0xEB, 0xCF, 0xC9);
 
     private static final double CANCELLATION_FEE = 500.0;
+    private static final String PAYMENT_METHOD_CASH = "Cash";
     private static final int PAGE_SIZE = 8;
 
     private static final DateTimeFormatter DAY_FMT  = DateTimeFormatter.ofPattern("d MMM yyyy", Locale.ENGLISH);
     private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("h:mm a", Locale.ENGLISH);
 
     // High-contrast HTML badge colors for check-in / check-out statuses
-    private static final String STATUS_PENDING_HEX = "#B45309"; // Bold warm amber
-    private static final String STATUS_DONE_HEX    = "#1F6E43"; // Bold emerald green
+    private static final String STATUS_PENDING_HEX = "#B45309";
+    private static final String STATUS_DONE_HEX    = "#1F6E43";
 
     private final GuestService guestService;
     private final BookingService bookingService;
@@ -80,13 +77,12 @@ public class GuestPanel extends JPanel {
     private JButton nextButton;
     private JLabel pageLabel;
 
-    // Pairs each guest with their booking so multi-stay guests show each stay
     private final List<GuestRow> filtered = new ArrayList<>();
     private int currentPage = 0;
 
     private static class GuestRow {
         final Guest guest;
-        final Booking booking; // null when the guest has no active booking
+        final Booking booking;
 
         GuestRow(Guest guest, Booking booking) {
             this.guest = guest;
@@ -118,7 +114,6 @@ public class GuestPanel extends JPanel {
 
         refreshTable();
 
-        // Re-evaluates check-in eligibility periodically in case 2:00 PM passes while open
         new javax.swing.Timer(30_000, e -> updateActionButtons()).start();
     }
 
@@ -232,7 +227,6 @@ public class GuestPanel extends JPanel {
 
     private JScrollPane createTable() {
 
-        // Room column is first; Email column removed
         String[] columns = {
             "Room", "Guest name", "Contact number",
             "Address", "Booking type", "Check-in", "Check-out"
@@ -268,7 +262,6 @@ public class GuestPanel extends JPanel {
             guestTable.getColumnModel().getColumn(i).setCellRenderer(center);
         }
 
-        // Emphasize Room number in the first column
         DefaultTableCellRenderer roomRenderer = new DefaultTableCellRenderer();
         roomRenderer.setHorizontalAlignment(SwingConstants.CENTER);
         roomRenderer.setFont(new Font("SansSerif", Font.BOLD, 12));
@@ -462,10 +455,8 @@ public class GuestPanel extends JPanel {
     }
 
     /**
-     * Cancels a Reserved booking, frees the room, records the PHP 500 cancellation fee
-     * in PaymentService, and hides the cancelled row from Guest Management.
-     * Cancelled bookings remain in BookingService for financial history but are excluded
-     * from the Payment Receipt search bar.
+     * Cancels a Reserved booking, frees the room, records the non-editable PHP 500
+     * cash cancellation fee in PaymentService, and hides the cancelled row from Guest Management.
      */
     private void cancelSelectedBooking() {
 
@@ -496,12 +487,12 @@ public class GuestPanel extends JPanel {
             // 1. Mark booking cancelled & release the room
             bookingService.cancelBooking(bookingId);
 
-            // 2. Record the mandatory PHP 500 cancellation fee
+            // 2. Record the mandatory PHP 500 cash cancellation fee
             Payment feePayment = new Payment(
                 nextPaymentId(),
                 bookingId,
                 CANCELLATION_FEE,
-                dialog.getSelectedMethod(),
+                PAYMENT_METHOD_CASH,
                 LocalDate.now(),
                 "Paid"
             );
@@ -512,7 +503,7 @@ public class GuestPanel extends JPanel {
             JOptionPane.showMessageDialog(
                 this,
                 "Booking for " + guestName + " (Room " + roomNumber + ") has been cancelled.\n"
-                    + "Cancellation fee of PHP 500 paid via " + dialog.getSelectedMethod() + ".",
+                    + "Cancellation fee of PHP 500 paid in Cash.",
                 "Booking Cancelled",
                 JOptionPane.INFORMATION_MESSAGE
             );
@@ -596,7 +587,7 @@ public class GuestPanel extends JPanel {
             cancelTip = "Select a guest with a reserved booking to cancel.";
         } else if ("Reserved".equalsIgnoreCase(row.booking.getBookingStatus())) {
             canCancel = true;
-            cancelTip = "Cancel this reservation (PHP 500 cancellation fee applies).";
+            cancelTip = "Cancel this reservation (PHP 500 cash cancellation fee applies).";
         } else if ("Checked In".equalsIgnoreCase(row.booking.getBookingStatus())) {
             cancelTip = "A checked-in guest cannot be cancelled.";
         } else {
@@ -777,13 +768,7 @@ public class GuestPanel extends JPanel {
     private class CancellationFeeDialog extends JDialog {
 
         private final JTextField amountField = formField("500");
-        private final JComboBox<String> methodBox = new JComboBox<>(new String[] {
-            "Select payment method", "Cash", "Card", "Bank Transfer", "E-Wallet"
-        });
-        private final JLabel errorLabel = new JLabel(" ");
-
         private boolean confirmed = false;
-        private String selectedMethod;
 
         CancellationFeeDialog(Guest guest, Booking booking) {
             super(SwingUtilities.getWindowAncestor(GuestPanel.this),
@@ -792,13 +777,12 @@ public class GuestPanel extends JPanel {
 
             setUndecorated(true);
 
-            ((AbstractDocument) amountField.getDocument()).setDocumentFilter(new AmountFilter());
+            // Lock the PHP 500 cancellation fee so it cannot be changed
             amountField.setText("500");
-
-            methodBox.setFont(new Font("SansSerif", Font.PLAIN, 12));
-            methodBox.setBackground(Color.WHITE);
-            methodBox.setForeground(INK);
-            methodBox.setPreferredSize(new Dimension(200, 40));
+            amountField.setEditable(false);
+            amountField.setFocusable(false);
+            amountField.setBackground(FIELD_BG);
+            amountField.setFont(new Font("SansSerif", Font.BOLD, 13));
 
             JPanel root = new JPanel();
             root.setLayout(new BoxLayout(root, BoxLayout.Y_AXIS));
@@ -837,9 +821,9 @@ public class GuestPanel extends JPanel {
                 BorderFactory.createEmptyBorder(10, 12, 10, 12)
             ));
             JLabel feeText = new JLabel(
-                "<html><b>Cancellation Fee Due: PHP 500</b><br>"
+                "<html><b>Cancellation Fee Due: PHP 500 (Cash Only)</b><br>"
                 + "<span style='color:#6B7783; font-size:10px;'>"
-                + "Full payment of PHP 500 is required to process cancellation.</span></html>"
+                + "A fixed cash fee of PHP 500 is required to process cancellation.</span></html>"
             );
             feeText.setFont(new Font("SansSerif", Font.PLAIN, 12));
             feeText.setForeground(BURGUNDY);
@@ -847,15 +831,8 @@ public class GuestPanel extends JPanel {
             root.add(left(feeBanner));
             root.add(Box.createVerticalStrut(14));
 
-            root.add(left(labeled("Payment Amount (PHP)", amountField)));
-            root.add(Box.createVerticalStrut(14));
-            root.add(left(labeled("Payment Method", methodBox)));
-            root.add(Box.createVerticalStrut(10));
-
-            errorLabel.setFont(new Font("SansSerif", Font.PLAIN, 11));
-            errorLabel.setForeground(DANGER);
-            root.add(left(errorLabel));
-            root.add(Box.createVerticalStrut(14));
+            root.add(left(labeled("Cancellation Fee (PHP · Fixed Cash)", amountField)));
+            root.add(Box.createVerticalStrut(18));
 
             JButton back = styledButton("Keep booking", ButtonKind.OUTLINE);
             back.setPreferredSize(new Dimension(120, 40));
@@ -863,7 +840,10 @@ public class GuestPanel extends JPanel {
 
             JButton proceed = styledButton("Pay PHP 500 & Cancel", ButtonKind.PRIMARY);
             proceed.setPreferredSize(new Dimension(210, 40));
-            proceed.addActionListener(e -> submit());
+            proceed.addActionListener(e -> {
+                confirmed = true;
+                dispose();
+            });
 
             JPanel buttons = new JPanel(new BorderLayout(12, 0));
             buttons.add(back, BorderLayout.WEST);
@@ -878,48 +858,7 @@ public class GuestPanel extends JPanel {
             setLocationRelativeTo(GuestPanel.this);
         }
 
-        private void submit() {
-            String rawAmount = amountField.getText().trim();
-            if (rawAmount.isEmpty()) {
-                errorLabel.setText("Payment amount (PHP 500) is required.");
-                amountField.requestFocus();
-                return;
-            }
-            if (!rawAmount.matches("\\d+(\\.\\d{1,2})?")) {
-                errorLabel.setText("Payment amount must contain numbers only.");
-                amountField.requestFocus();
-                return;
-            }
-
-            double entered;
-            try {
-                entered = Double.parseDouble(rawAmount);
-            } catch (NumberFormatException e) {
-                errorLabel.setText("Please enter a valid numeric payment amount.");
-                amountField.requestFocus();
-                return;
-            }
-
-            if (Math.abs(entered - CANCELLATION_FEE) > 0.004) {
-                errorLabel.setText("Exact cancellation fee of PHP 500 is required.");
-                amountField.requestFocus();
-                return;
-            }
-
-            Object method = methodBox.getSelectedItem();
-            if (method == null || "Select payment method".equalsIgnoreCase(method.toString())) {
-                errorLabel.setText("Please select a payment method.");
-                methodBox.requestFocus();
-                return;
-            }
-
-            selectedMethod = method.toString();
-            confirmed = true;
-            dispose();
-        }
-
         boolean isConfirmed() { return confirmed; }
-        String getSelectedMethod() { return selectedMethod; }
     }
 
     private class GuestDialog extends JDialog {
@@ -1213,32 +1152,6 @@ public class GuestPanel extends JPanel {
         }
         return "+63 " + digits.substring(2, 5) + " "
                 + digits.substring(5, 8) + " " + digits.substring(8);
-    }
-
-    private static class AmountFilter extends DocumentFilter {
-
-        @Override
-        public void insertString(FilterBypass fb, int offset, String text, AttributeSet attr)
-                throws BadLocationException {
-            replace(fb, offset, 0, text, attr);
-        }
-
-        @Override
-        public void replace(FilterBypass fb, int offset, int length, String text,
-                            AttributeSet attrs) throws BadLocationException {
-            if (text == null) {
-                super.replace(fb, offset, length, text, attrs);
-                return;
-            }
-            String current = fb.getDocument().getText(0, fb.getDocument().getLength());
-            String next = current.substring(0, offset) + text
-                    + current.substring(offset + length);
-            if (!next.matches("\\d*(\\.\\d{0,2})?")) {
-                Toolkit.getDefaultToolkit().beep();
-                return;
-            }
-            super.replace(fb, offset, length, text, attrs);
-        }
     }
 
     private static class PhoneFilter extends javax.swing.text.DocumentFilter {

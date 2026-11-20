@@ -22,14 +22,16 @@ import static gui.UiKit.*;
 /**
  * Screen 4: Room Management.
  * Categorizes rooms by room type (All types, Standard, Deluxe, Suite) via top category tabs
- * with live counts, combined with search, status filtering, and room editing.
+ * with live counts, combined with search, status filtering (All rooms, Available, Occupied, Reserved),
+ * and room editing.
  */
 public class RoomPanel extends JPanel {
 
     private static final int PAGE_SIZE = 8;
 
     private static final String[] TYPES = {"Standard", "Deluxe", "Suite"};
-    private static final String[] STATUSES = {"Available", "Occupied", "Reserved", "Maintenance"};
+    private static final String[] STATUSES = {"Available", "Occupied", "Reserved"};
+    private static final String ALL_STATUS_LABEL = "All rooms";
 
     private final RoomService roomService;
 
@@ -162,7 +164,7 @@ public class RoomPanel extends JPanel {
         onChange(searchField, this::resetAndRefresh);
 
         statusFilter = new JComboBox<>(new String[] {
-            "All statuses", "Available", "Occupied", "Reserved", "Maintenance"
+            ALL_STATUS_LABEL, "Available", "Occupied", "Reserved"
         });
         styleFilter(statusFilter, 150);
         statusFilter.addActionListener(e -> resetAndRefresh());
@@ -432,7 +434,7 @@ public class RoomPanel extends JPanel {
                     && !room.getRoomType().equalsIgnoreCase(selectedTypeCategory)) {
                 continue;
             }
-            if (!status.equals("All statuses")
+            if (!status.equalsIgnoreCase(ALL_STATUS_LABEL)
                     && !room.getStatus().equalsIgnoreCase(status)) {
                 continue;
             }
@@ -686,8 +688,6 @@ public class RoomPanel extends JPanel {
                 bg = new Color(0xE3, 0xF1, 0xE7); fg = new Color(0x2F, 0x6B, 0x45);
             } else if (status.equalsIgnoreCase("Reserved")) {
                 bg = new Color(0xF7, 0xEB, 0xCF); fg = new Color(0x8A, 0x64, 0x20);
-            } else if (status.equalsIgnoreCase("Maintenance")) {
-                bg = new Color(0xEC, 0xEC, 0xEC); fg = new Color(0x66, 0x66, 0x66);
             } else {
                 bg = new Color(0xE6, 0xEC, 0xF3); fg = new Color(0x3A, 0x4D, 0x63);
             }

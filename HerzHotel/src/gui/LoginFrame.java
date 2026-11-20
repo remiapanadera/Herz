@@ -25,14 +25,13 @@ public class LoginFrame extends JFrame {
     private static final Color BTN_COLOR    = new Color(74, 0, 0);      // burgundy button
     private static final Color BTN_HOVER    = new Color(100, 10, 10);   // button on mouse hover
 
-    // ---------- Photo location (mayon.jpg sits in the gui package folder, next to logo.png) ----------
-    private static final String IMAGE_RESOURCE = "/gui/mayon.jpg";    // inside the gui package folder
-    private static final String IMAGE_FILE     = "src/gui/mayon.jpg"; // or project folder path
+    // ---------- Photo location ----------
+    private static final String IMAGE_RESOURCE = "/gui/mayon.jpg";
+    private static final String IMAGE_FILE     = "src/gui/mayon.jpg";
 
-    // ---------- Logo image (optional, replaces the text logo) ----------
-    private static final String LOGO_RESOURCE = "/gui/logo.png";    // inside the gui package folder
-    private static final String LOGO_FILE     = "src/gui/logo.png"; // or project folder path
-    private static final int LOGO_WIDTH       = 80;                // logo width in pixels
+    // ---------- Logo image ----------
+    private static final String LOGO_RESOURCE = "/gui/logo.jpg";
+    private static final int LOGO_WIDTH       = 80; // logo width in pixels
 
     // ---------- Size of the photo panel (change this to resize it) ----------
     private static final int PHOTO_WIDTH = 580; // window is 1100 wide, so the form gets 460
@@ -71,7 +70,7 @@ public class LoginFrame extends JFrame {
         logo.setOpaque(false);
         logo.setLayout(new BoxLayout(logo, BoxLayout.Y_AXIS));
 
-        JLabel logoMain = new JLabel("\u2661 Herz");
+        JLabel logoMain = new JLabel("Herz");
         logoMain.setFont(font("Serif", Font.ITALIC, 34, "Playfair Display"));
         logoMain.setForeground(Color.WHITE);
         logoMain.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -86,7 +85,7 @@ public class LoginFrame extends JFrame {
         logo.add(logoSub);
 
         // If a logo image exists: [logo image] + "erz" side by side, with HOTEL below
-        BufferedImage logoImage = loadImage(LOGO_RESOURCE, LOGO_FILE);
+        BufferedImage logoImage = loadLogoImage();
         if (logoImage != null) {
             int logoHeight = LOGO_WIDTH * logoImage.getHeight() / logoImage.getWidth(); // keep proportions
             JLabel logoLabel = new JLabel(new ImageIcon(scaleImage(logoImage, LOGO_WIDTH, logoHeight)));
@@ -387,13 +386,79 @@ public class LoginFrame extends JFrame {
         return out;
     }
 
+    // Automatically locates logo.jpg (or any logo.* file) anywhere in the project folder
+    private static BufferedImage loadLogoImage() {
+        String[] resources = {
+            LOGO_RESOURCE, "/logo.jpg", "/assets/logo.jpg", "/images/logo.jpg",
+            "/util/logo.jpg", "/gui/logo.png", "/logo.png"
+        };
+        for (String res : resources) {
+            BufferedImage img = loadImage(res, null);
+            if (img != null) return img;
+        }
+
+        File found = findLogoFile(new File(System.getProperty("user.dir")), 4);
+        if (found == null && new File("..").exists()) {
+            found = findLogoFile(new File(".."), 4);
+        }
+        if (found != null) {
+            BufferedImage img = loadImage(null, found.getPath());
+            if (img != null) return img;
+
+            Image raw = Toolkit.getDefaultToolkit().getImage(found.getAbsolutePath());
+            MediaTracker tracker = new MediaTracker(new Canvas());
+            tracker.addImage(raw, 0);
+            try {
+                tracker.waitForID(0);
+                if (raw.getWidth(null) > 0 && raw.getHeight(null) > 0) {
+                    BufferedImage buf = new BufferedImage(
+                        raw.getWidth(null), raw.getHeight(null), BufferedImage.TYPE_INT_ARGB
+                    );
+                    Graphics2D g2 = buf.createGraphics();
+                    g2.drawImage(raw, 0, 0, null);
+                    g2.dispose();
+                    return buf;
+                }
+            } catch (InterruptedException ignored) { }
+        }
+        return null;
+    }
+
+    private static File findLogoFile(File dir, int depth) {
+        if (depth < 0 || dir == null || !dir.isDirectory()) return null;
+        File[] children = dir.listFiles();
+        if (children == null) return null;
+
+        for (File f : children) {
+            if (f.isFile()) {
+                String lower = f.getName().toLowerCase();
+                if (lower.startsWith("logo")
+                        && (lower.endsWith(".jpg") || lower.endsWith(".jpeg")
+                            || lower.endsWith(".png") || lower.endsWith(".gif"))) {
+                    return f;
+                }
+            }
+        }
+        for (File f : children) {
+            if (f.isDirectory() && !f.getName().startsWith(".") && !f.getName().equals("bin")) {
+                File match = findLogoFile(f, depth - 1);
+                if (match != null) return match;
+            }
+        }
+        return null;
+    }
+
     // Loads an image from the classpath or project folder; returns null if not found
-    private BufferedImage loadImage(String resource, String file) {
+    private static BufferedImage loadImage(String resource, String file) {
         try {
-            URL url = LoginFrame.class.getResource(resource);
-            if (url != null) return ImageIO.read(url);
-            File f = new File(file);
-            if (f.exists()) return ImageIO.read(f);
+            if (resource != null) {
+                URL url = LoginFrame.class.getResource(resource);
+                if (url != null) return ImageIO.read(url);
+            }
+            if (file != null) {
+                File f = new File(file);
+                if (f.exists()) return ImageIO.read(f);
+            }
         } catch (Exception ignored) { }
         return null;
     }

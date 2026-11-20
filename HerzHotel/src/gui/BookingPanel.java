@@ -47,6 +47,7 @@ import static gui.UiKit.*;
  * - Requires every field on the Reservation details form (including Address) to be completed.
  * - Cascaded Room Selection: Category dropdown defaults to "Standard" and displays
  *   type, available count, and nightly rate; Room dropdown shows only the room number.
+ * - Cash-only payment mode (Payment Method selector removed; payments default to Cash).
  * - Highlights the Total Due amount prominently before a reservation is confirmed.
  * - Top-right receipt search bar filters active (non-cancelled) bookings only,
  *   and keeps the receipt card empty when no guest is chosen.
@@ -57,6 +58,7 @@ public class BookingPanel extends JPanel {
         DateTimeFormatter.ofPattern("d MMM yyyy", Locale.ENGLISH);
 
     private static final int PH_DIGITS = 12;
+    private static final String PAYMENT_METHOD_CASH = "Cash";
 
     private final BookingService bookingService;
     private final GuestService guestService;
@@ -80,7 +82,6 @@ public class BookingPanel extends JPanel {
     private JSpinner checkInSpinner;
     private JSpinner checkOutSpinner;
     private JTextField paymentAmountField;
-    private JComboBox<String> paymentMethodBox;
     private JButton confirmButton;
     private JLabel stayNote;
     private JLabel totalDueLabel;
@@ -234,7 +235,6 @@ public class BookingPanel extends JPanel {
             return;
         }
 
-        // Always sync against the latest bookings so newly cancelled bookings are excluded immediately
         syncActiveBookingItems();
 
         String query = receiptSearchField.getText().trim().toLowerCase();
@@ -364,7 +364,7 @@ public class BookingPanel extends JPanel {
         gc.insets = new Insets(0, 0, 20, 0);
         card.add(types, gc);
 
-        // --- Direct Guest Name (letters & symbols only) & Contact Number ---
+        // --- Direct Guest Name & Contact Number ---
         guestNameField = formField("Enter guest full name");
         ((AbstractDocument) guestNameField.getDocument()).setDocumentFilter(new NameFilter());
 
@@ -467,21 +467,13 @@ public class BookingPanel extends JPanel {
             labeled("Check-out date", checkOutSpinner)
         );
 
-        // --- Payment Amount (numbers only) & Payment Method ---
-        paymentAmountField = formField("Enter full booking amount");
+        // --- Payment Amount (Cash only, full-width row) ---
+        paymentAmountField = formField("Enter full cash amount (PHP)");
         ((AbstractDocument) paymentAmountField.getDocument()).setDocumentFilter(new AmountFilter());
 
-        paymentMethodBox = new JComboBox<>(new String[] {
-            "Select payment method", "Cash", "Card", "Bank Transfer", "E-Wallet"
-        });
-        styleCombo(paymentMethodBox);
-        paymentMethodBox.addActionListener(e -> updateConfirmButtonState());
-
-        addPair(
-            card, 8,
-            labeled("Payment Amount (PHP)", paymentAmountField),
-            labeled("Payment Method", paymentMethodBox)
-        );
+        gc.gridx = 0; gc.gridy = 8; gc.gridwidth = 2;
+        gc.insets = new Insets(0, 0, 18, 0);
+        card.add(labeled("Payment Amount (PHP · Cash Only)", paymentAmountField), gc);
 
         DocumentListener formWatcher = new DocumentListener() {
             @Override public void insertUpdate(DocumentEvent e) { updateConfirmButtonState(); }
@@ -549,7 +541,6 @@ public class BookingPanel extends JPanel {
             }
         }
 
-        // Fall back to all rooms of this category if 0 are currently available so price still displays
         List<Room> priceSource = matchingAvailable;
         if (priceSource.isEmpty()) {
             priceSource = new ArrayList<>();
@@ -626,12 +617,6 @@ public class BookingPanel extends JPanel {
         }
         if (paymentAmountField == null || paymentAmountField.getText().trim().isEmpty()) {
             missing.add("Payment Amount (PHP)");
-        }
-        if (paymentMethodBox == null
-                || paymentMethodBox.getSelectedItem() == null
-                || "Select payment method".equalsIgnoreCase(
-                    paymentMethodBox.getSelectedItem().toString())) {
-            missing.add("Payment Method");
         }
 
         return missing;
@@ -903,7 +888,7 @@ public class BookingPanel extends JPanel {
     }
 
     // =====================================================================
-    //  Booking Confirmation, Guest Sync, and Full Payment Validation
+    //  Booking Confirmation, Guest Sync, and Full Cash Payment Validation
     // =====================================================================
 
     private void confirmBooking() {
@@ -927,10 +912,8 @@ public class BookingPanel extends JPanel {
                 roomBox.requestFocus();
             } else if (occupantsBox.getSelectedItem() == null) {
                 occupantsBox.requestFocus();
-            } else if (paymentAmountField.getText().trim().isEmpty()) {
-                paymentAmountField.requestFocus();
             } else {
-                paymentMethodBox.requestFocus();
+                paymentAmountField.requestFocus();
             }
             return;
         }
@@ -1019,7 +1002,7 @@ public class BookingPanel extends JPanel {
 
         if (Math.abs(enteredAmount - expectedTotal) > 0.004) {
             if (enteredAmount < expectedTotal) {
-                showError("Partial payments are not allowed. Full payment of PHP "
+                showError("Partial payments are not allowed. Full cash payment of PHP "
                     + money(expectedTotal) + " is required to confirm this booking.");
             } else {
                 showError("Payment amount (PHP " + money(enteredAmount)
@@ -1028,8 +1011,6 @@ public class BookingPanel extends JPanel {
             paymentAmountField.requestFocus();
             return;
         }
-
-        String paymentMethod = paymentMethodBox.getSelectedItem().toString();
 
         submitting = true;
 
@@ -1054,7 +1035,7 @@ public class BookingPanel extends JPanel {
                 nextPaymentId(),
                 booking.getBookingId(),
                 enteredAmount,
-                paymentMethod,
+                PAYMENT_METHOD_CASH,
                 LocalDate.now(),
                 "Paid"
             );
@@ -1067,7 +1048,7 @@ public class BookingPanel extends JPanel {
 
             JOptionPane.showMessageDialog(
                 this,
-                "Reservation confirmed and paid in full for " + guest.getFullName() + ".",
+                "Reservation confirmed and paid in cash for " + guest.getFullName() + ".",
                 "Booking Confirmed",
                 JOptionPane.INFORMATION_MESSAGE
             );
@@ -1120,7 +1101,6 @@ public class BookingPanel extends JPanel {
         contactField.setText("");
         addressField.setText("");
         paymentAmountField.setText("");
-        paymentMethodBox.setSelectedIndex(0);
         updateConfirmButtonState();
     }
 
@@ -1373,7 +1353,7 @@ public class BookingPanel extends JPanel {
                 return payments.get(i).getPaymentMethod();
             }
         }
-        return "Paid";
+        return PAYMENT_METHOD_CASH;
     }
 
     private String paidLineText(Booking b) {
