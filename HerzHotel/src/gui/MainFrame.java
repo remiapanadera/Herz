@@ -201,7 +201,7 @@ public class MainFrame extends JFrame {
         sidebar.add(Box.createVerticalGlue());
 
         // --- Log out at the bottom ---
-        NavButton logoutButton = new NavButton("Log out", "logout");
+        NavButton logoutButton = new NavButton("Logout", "logout");
         logoutButton.setAlignmentX(Component.LEFT_ALIGNMENT);
         logoutButton.addActionListener(e -> logout());
         sidebar.add(logoutButton);
