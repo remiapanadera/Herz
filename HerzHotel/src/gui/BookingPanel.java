@@ -48,7 +48,8 @@ import static gui.UiKit.*;
  * - Cascaded Room Selection: Category dropdown defaults to "Standard" and displays
  *   type, available count, and nightly rate; Room dropdown shows only the room number.
  * - Highlights the Total Due amount prominently before a reservation is confirmed.
- * - Top-right receipt search bar filters active (non-cancelled) bookings only.
+ * - Top-right receipt search bar filters active (non-cancelled) bookings only,
+ *   and keeps the receipt card empty when no guest is chosen.
  */
 public class BookingPanel extends JPanel {
 
@@ -237,6 +238,13 @@ public class BookingPanel extends JPanel {
         syncActiveBookingItems();
 
         String query = receiptSearchField.getText().trim().toLowerCase();
+
+        // Keep the receipt card empty when no guest is chosen/searched
+        if (query.isEmpty() && currentBooking != null) {
+            currentBooking = null;
+            renderReceipt();
+        }
+
         receiptListModel.clear();
 
         for (BookingItem item : allBookingItems) {
@@ -853,12 +861,9 @@ public class BookingPanel extends JPanel {
             }
         }
 
-        if (toSelect == null && !allBookingItems.isEmpty()) {
-            toSelect = allBookingItems.get(0);
-        }
-
+        // Leave currentBooking null when no guest is explicitly chosen
         currentBooking = toSelect == null ? null : toSelect.booking;
-        receiptSearchField.setText("");
+        receiptSearchField.setText(toSelect == null ? "" : toSelect.toString());
 
         loading = false;
 
