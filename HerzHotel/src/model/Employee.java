@@ -1,14 +1,11 @@
-
 package model;
 
-public class Employee {
+public class Employee extends Person {
 
     // ==========================================
     // EMPLOYEE ATTRIBUTES
     // ==========================================
 
-    private String employeeId;
-    private String fullName;
     private String username;
     private String password;
     private String position;
@@ -17,12 +14,12 @@ public class Employee {
     // CONSTRUCTOR
     // ==========================================
 
-    public Employee(String employeeId, String fullName,
+    public Employee(String fullName,
                     String username, String password,
                     String position) {
 
-        setEmployeeId(employeeId);
-        setFullName(fullName);
+        super(fullName);
+
         setUsername(username);
         setPassword(password);
         setPosition(position);
@@ -31,14 +28,6 @@ public class Employee {
     // ==========================================
     // GETTERS
     // ==========================================
-
-    public String getEmployeeId() {
-        return employeeId;
-    }
-
-    public String getFullName() {
-        return fullName;
-    }
 
     public String getUsername() {
         return username;
@@ -55,28 +44,6 @@ public class Employee {
     // ==========================================
     // SETTERS
     // ==========================================
-
-    public void setEmployeeId(String employeeId) {
-
-        if (employeeId == null || employeeId.trim().isEmpty()) {
-            throw new IllegalArgumentException(
-                    "Employee ID cannot be empty."
-            );
-        }
-
-        this.employeeId = employeeId.trim();
-    }
-
-    public void setFullName(String fullName) {
-
-        if (fullName == null || fullName.trim().isEmpty()) {
-            throw new IllegalArgumentException(
-                    "Employee name cannot be empty."
-            );
-        }
-
-        this.fullName = fullName.trim();
-    }
 
     public void setUsername(String username) {
 
@@ -112,14 +79,22 @@ public class Employee {
     }
 
     // ==========================================
+    // OVERRIDDEN ROLE
+    // ==========================================
+
+    @Override
+    public String getRole() {
+        return "Employee";
+    }
+
+    // ==========================================
     // DISPLAY INFORMATION
     // ==========================================
 
     @Override
     public String toString() {
 
-        return "Employee ID: " + employeeId
-                + "\nName: " + fullName
+        return "Name: " + getFullName()
                 + "\nUsername: " + username
                 + "\nPosition: " + position;
     }

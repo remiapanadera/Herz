@@ -639,17 +639,8 @@ public class BookingPanel extends JPanel {
     // =====================================================================
 
     private static int maxOccupantsForRoom(Room room) {
-        if (room == null || room.getRoomType() == null) {
-            return 2;
-        }
-        String type = room.getRoomType().trim();
-        if (type.equalsIgnoreCase("Suite")) {
-            return 4;
-        }
-        if (type.equalsIgnoreCase("Deluxe")) {
-            return 3;
-        }
-        return 2;
+        // Capacity comes from the room's type (Standard 2, Deluxe 3, Suite 4).
+        return room == null ? 2 : room.getCapacity();
     }
 
     private JSpinner dateSpinner(LocalDate initial) {
@@ -688,7 +679,7 @@ public class BookingPanel extends JPanel {
         LocalDate in = walkIn ? LocalDate.now() : dateOf(checkInSpinner);
         LocalDate out = dateOf(checkOutSpinner);
         long nights = Math.max(ChronoUnit.DAYS.between(in, out), 0);
-        return room.getPricePerNight() * nights;
+        return room.calculateTotal(nights);
     }
 
     private void updateStayNote() {
@@ -976,7 +967,7 @@ public class BookingPanel extends JPanel {
         }
 
         long nights = ChronoUnit.DAYS.between(checkIn, checkOut);
-        double expectedTotal = room.getPricePerNight() * nights;
+        double expectedTotal = room.calculateTotal(nights);
 
         String rawAmount = paymentAmountField.getText().trim();
         if (!rawAmount.matches("\\d+(\\.\\d{1,2})?")) {
@@ -1145,7 +1136,7 @@ public class BookingPanel extends JPanel {
 
     private double totalCost(Booking booking) {
         Room room = roomService.findRoomByNumber(booking.getRoomNumber());
-        return room == null ? 0 : room.getPricePerNight() * booking.getNumberOfNights();
+        return room == null ? 0 : room.calculateTotal(booking.getNumberOfNights());
     }
 
     private double totalPaid(Booking booking) {

@@ -1,13 +1,12 @@
 package model;
 
-public class Guest {
+public class Guest extends Person {
 
     // ==========================================
     // GUEST ATTRIBUTES
     // ==========================================
 
     private String guestId;
-    private String fullName;
     private String email;
     private String phoneNumber;
     private String address;
@@ -20,8 +19,9 @@ public class Guest {
                  String email, String phoneNumber,
                  String address) {
 
+        super(fullName);
+
         setGuestId(guestId);
-        setFullName(fullName);
         setEmail(email);
         setPhoneNumber(phoneNumber);
         setAddress(address);
@@ -33,10 +33,6 @@ public class Guest {
 
     public String getGuestId() {
         return guestId;
-    }
-
-    public String getFullName() {
-        return fullName;
     }
 
     public String getEmail() {
@@ -66,17 +62,6 @@ public class Guest {
         this.guestId = guestId.trim();
     }
 
-    public void setFullName(String fullName) {
-
-        if (fullName == null || fullName.trim().isEmpty()) {
-            throw new IllegalArgumentException(
-                    "Guest name cannot be empty."
-            );
-        }
-
-        this.fullName = fullName.trim();
-    }
-
     public void setEmail(String email) {
         this.email = email == null ? "" : email.trim();
     }
@@ -97,6 +82,15 @@ public class Guest {
     }
 
     // ==========================================
+    // OVERRIDDEN ROLE
+    // ==========================================
+
+    @Override
+    public String getRole() {
+        return "Guest";
+    }
+
+    // ==========================================
     // DISPLAY INFORMATION
     // ==========================================
 
@@ -104,7 +98,7 @@ public class Guest {
     public String toString() {
 
         return "Guest ID: " + guestId
-                + "\nName: " + fullName
+                + "\nName: " + getFullName()
                 + "\nEmail: " + email
                 + "\nPhone: " + phoneNumber
                 + "\nAddress: " + address;

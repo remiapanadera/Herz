@@ -61,7 +61,8 @@ public class PaymentService {
             throw new IllegalArgumentException("Room not found.");
         }
 
-        return room.getPricePerNight() * booking.getNumberOfNights();
+        // The room's type (Standard, Deluxe or Suite) calculates its own rate.
+        return room.calculateTotal(booking.getNumberOfNights());
     }
 
     public void markPaymentAsPaid(String paymentId) {

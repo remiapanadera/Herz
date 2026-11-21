@@ -1,4 +1,3 @@
-
 package model;
 
 public class Admin extends Employee {
@@ -13,12 +12,11 @@ public class Admin extends Employee {
     // CONSTRUCTOR
     // ==========================================
 
-    public Admin(String employeeId, String fullName,
+    public Admin(String fullName,
                  String username, String password,
                  String position, String accessLevel) {
 
         super(
-                employeeId,
                 fullName,
                 username,
                 password,
@@ -57,6 +55,15 @@ public class Admin extends Employee {
 
     public boolean canManageHotel() {
         return accessLevel.equalsIgnoreCase("Full Access");
+    }
+
+    // ==========================================
+    // OVERRIDDEN ROLE (shown under the name in the top bar)
+    // ==========================================
+
+    @Override
+    public String getRole() {
+        return "Administrator";
     }
 
     // ==========================================

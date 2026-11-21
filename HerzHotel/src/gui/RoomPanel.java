@@ -78,14 +78,6 @@ public class RoomPanel extends JPanel {
         return digits.length() >= 3 ? digits.substring(0, digits.length() - 2) : "1";
     }
 
-    /** Occupant capacity per room type: Standard = 2, Deluxe = 3, Suite = 4. */
-    static int capacityFor(String roomType) {
-        if (roomType == null) return 2;
-        if (roomType.equalsIgnoreCase("Suite")) return 4;
-        if (roomType.equalsIgnoreCase("Deluxe")) return 3;
-        return 2;
-    }
-
     private static int typeOrder(String roomType) {
         if (roomType == null) return 99;
         if (roomType.equalsIgnoreCase("Standard")) return 1;
@@ -465,7 +457,7 @@ public class RoomPanel extends JPanel {
                 floorOf(r),
                 String.format("%,.0f", r.getPricePerNight()),
                 r.getStatus(),
-                capacityFor(r.getRoomType()) + " occupants"
+                r.getCapacity() + " occupants"
             });
         }
 

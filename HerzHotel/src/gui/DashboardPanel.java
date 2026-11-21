@@ -1,5 +1,6 @@
 package gui;
 
+import model.RoomType;
 import service.ReportService;
 
 import javax.imageio.ImageIO;
@@ -9,6 +10,7 @@ import java.awt.*;
 import java.awt.geom.RoundRectangle2D;
 import java.awt.image.BufferedImage;
 import java.net.URL;
+import java.util.List;
 
 /**
  * Home page (the screen shown right after logging in):
@@ -33,14 +35,15 @@ public class DashboardPanel extends JPanel {
     private static final int RATE_HEIGHT   = 196;
     private static final int GAP           = 16;
 
-    // ---------- Room Types & Rates (edit the text and prices here) ----------
-    // Each row: { type name, price per night, then the list of features }
+    // ---------- Room Types & Rates ----------
+    // One object per room type. Each one is a StandardRoom, DeluxeRoom or SuiteRoom,
+    // and each works out its own nightly rate, capacity and features.
     private static final String PESO = "\u20B1";
-    private static final String[][] ROOM_TYPES = {
-        { "Standard", "1,500", "2 persons", "1 Queen bed",     "Air conditioning", "Private bathroom", "Wi-Fi" },
-        { "Deluxe",   "2,500", "3 persons", "Queen + Single",  "Air conditioning", "Private bathroom", "Television" },
-        { "Suite",    "4,000", "4 persons", "2 Queen beds",    "Air conditioning", "Private bathroom", "Television" }
-    };
+    private static final List<RoomType> ROOM_TYPES = List.of(
+        RoomType.create("Standard", RoomType.DEFAULT_BASE_PRICE),
+        RoomType.create("Deluxe",   RoomType.DEFAULT_BASE_PRICE),
+        RoomType.create("Suite",    RoomType.DEFAULT_BASE_PRICE)
+    );
     private static final String HERO_IMAGE = "/gui/mayon.jpg";
 
     private final ReportService reportService;
@@ -252,26 +255,26 @@ public class DashboardPanel extends JPanel {
     }
 
     private JPanel createRatesRow() {
-        JPanel row = new JPanel(new GridLayout(1, ROOM_TYPES.length, GAP, 0));
+        JPanel row = new JPanel(new GridLayout(1, ROOM_TYPES.size(), GAP, 0));
         row.setOpaque(false);
         row.setPreferredSize(new Dimension(100, RATE_HEIGHT));
-        for (String[] type : ROOM_TYPES) {
+        for (RoomType type : ROOM_TYPES) {
             row.add(createRateCard(type));
         }
         return row;
     }
 
-    private JPanel createRateCard(String[] type) {
+    private JPanel createRateCard(RoomType type) {
         RoundedCard card = new RoundedCard(CARD_WHITE, CARD_BORDER);
         card.setLayout(new BoxLayout(card, BoxLayout.Y_AXIS));
         card.setBorder(new EmptyBorder(16, 22, 14, 22));
 
-        JLabel name = new JLabel(type[0]);
+        JLabel name = new JLabel(type.getTypeName());
         name.setFont(font("SansSerif", Font.PLAIN, 17, "Inter"));
         name.setForeground(TEXT_DARK);
         name.setAlignmentX(Component.LEFT_ALIGNMENT);
 
-        JLabel price = new JLabel(PESO + type[1]);
+        JLabel price = new JLabel(PESO + String.format("%,.0f", type.calculateNightlyRate()));
         price.setFont(font("SansSerif", Font.BOLD, 26, "Inter"));
         price.setForeground(BURGUNDY_TEXT);
         price.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -287,8 +290,13 @@ public class DashboardPanel extends JPanel {
         card.add(perNight);
         card.add(Box.createVerticalStrut(14));
 
-        for (int i = 2; i < type.length; i++) {
-            JLabel feature = new JLabel(type[i]);
+        // "2 persons" / "3 persons" / "4 persons", then the type's own features
+        List<String> lines = new java.util.ArrayList<>();
+        lines.add(type.getCapacity() + " persons");
+        lines.addAll(type.getFeatures());
+
+        for (String line : lines) {
+            JLabel feature = new JLabel(line);
             feature.setFont(font("SansSerif", Font.PLAIN, 12, "Inter"));
             feature.setForeground(TEXT_DARK);
             feature.setAlignmentX(Component.LEFT_ALIGNMENT);

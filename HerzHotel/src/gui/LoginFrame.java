@@ -1,5 +1,8 @@
 package gui;
 
+import model.Admin;
+import service.AuthenticationService;
+
 import javax.imageio.ImageIO;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
@@ -35,6 +38,9 @@ public class LoginFrame extends JFrame {
 
     // ---------- Size of the photo panel (change this to resize it) ----------
     private static final int PHOTO_WIDTH = 580; // window is 1100 wide, so the form gets 460
+
+    // The list of admins lives in AuthenticationService.loadAdmins()
+    private final AuthenticationService authService = new AuthenticationService();
 
     private JTextField usernameField;
     private JPasswordField passwordField;
@@ -527,37 +533,19 @@ public class LoginFrame extends JFrame {
     }
 
     // =====================================================================
-    //  ACCOUNTS: each row is { username, password }.
-    //  To add or change an account, edit or copy one of these lines.
-    // =====================================================================
-    private static final String[][] ACCOUNTS = {
-        { "Trisha Dajac",  "admin123" },
-        { "Heini Llaneta",   "admin12" },   
-        { "Remia Panadera",    "admin1" }
-    };
-
-    // True if the typed username + password match one of the accounts above
-    private static boolean isValidLogin(String username, String password) {
-        for (String[] account : ACCOUNTS) {
-            if (account[0].equals(username) && account[1].equals(password)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    // =====================================================================
     //  LOGIN LOGIC
     // =====================================================================
     private void handleLogin() {
         String username = usernameField.getText().trim();
         String password = new String(passwordField.getPassword());
 
-        if (isValidLogin(username, password)) {
+        Admin admin = authService.login(username, password);
+
+        if (admin != null) {
             JOptionPane.showMessageDialog(this, "Welcome to Herz Hotel!",
                 "Login Successful", JOptionPane.INFORMATION_MESSAGE);
 
-            MainFrame mainFrame = new MainFrame(username); // open the main window
+            MainFrame mainFrame = new MainFrame(admin); // open the main window
             mainFrame.setVisible(true);
             dispose();                              // close the login window
         } else {

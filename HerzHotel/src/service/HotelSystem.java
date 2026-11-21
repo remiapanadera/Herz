@@ -4,6 +4,7 @@ import model.Booking;
 import model.Guest;
 import model.Payment;
 import model.Room;
+import model.RoomType;
 import storage.HotelDataManager;
 
 import java.io.IOException;
@@ -116,7 +117,6 @@ public class HotelSystem {
 
         int[] roomsPerFloor = {8, 8, 8, 6};                          // floors 1-4 = 30 rooms
         String[] roomTypes  = {"Standard", "Standard", "Deluxe", "Suite"};
-        double[] prices     = {1500, 1500, 2500, 4000};              // price per night for each floor
 
         for (int floor = 1; floor <= 4; floor++) {
             for (int number = 1; number <= roomsPerFloor[floor - 1]; number++) {
@@ -125,10 +125,16 @@ public class HotelSystem {
                 String roomNumber = String.format("%d%02d", floor, number);
 
                 try {
+                    // The room type object (Standard, Deluxe or Suite) sets the nightly rate:
+                    // 1,500 / 2,500 / 4,000 from the same base price.
+                    RoomType type = RoomType.create(
+                        roomTypes[floor - 1],
+                        RoomType.DEFAULT_BASE_PRICE
+                    );
+
                     roomService.addRoom(new Room(
                         roomNumber,
-                        roomTypes[floor - 1],
-                        prices[floor - 1],
+                        type,
                         "Available"
                     ));
                 } catch (Exception e) {

@@ -1,5 +1,6 @@
 package gui;
 
+import model.Person;
 import service.HotelSystem;
 import util.HerzTheme;
 
@@ -42,10 +43,8 @@ public class MainFrame extends JFrame {
     private static final String LOGO_RESOURCE = "/gui/logo.png";
     private static final int LOGO_WIDTH       = 56;
 
-    // ---------- Role shown under the user's name in the top bar ----------
-    private static final String USER_ROLE = "Administrator";
-
-    private final String username;          // the name typed in the login screen
+    private final String username;          // the logged-in user's name
+    private final String userRole;          // shown under the name (comes from the user's getRole())
     private final HotelSystem hotelSystem;
 
     private JPanel contentPanel;
@@ -61,13 +60,15 @@ public class MainFrame extends JFrame {
     private RoomPanel roomPanel;
     private BookingPanel bookingPanel;
 
-    // The login screen passes in the username that was typed
-    public MainFrame(String username) {
+    // The login screen passes in the logged-in user (an Admin, which is a Person)
+    public MainFrame(Person user) {
 
-        // If nothing was passed in, fall back to the role name
-        this.username = (username == null || username.trim().isEmpty())
-            ? USER_ROLE
-            : username.trim();
+        if (user == null) {
+            throw new IllegalArgumentException("A logged-in user is required.");
+        }
+
+        this.username = user.getFullName();
+        this.userRole = user.getRole();   // each kind of Person gives its own role
 
         hotelSystem = new HotelSystem();
 
@@ -332,12 +333,12 @@ public class MainFrame extends JFrame {
         divider.setMaximumSize(new Dimension(1, 36));
 
         // User name + role (stacked)
-        JLabel name = new JLabel(username); // the username from the login screen
+        JLabel name = new JLabel(username); // the logged-in user's name
         name.setFont(font("SansSerif", Font.BOLD, 11, "Inter"));
         name.setForeground(NAVY);
         name.setAlignmentX(Component.LEFT_ALIGNMENT);
 
-        JLabel role = new JLabel(USER_ROLE);
+        JLabel role = new JLabel(userRole);
         role.setFont(font("SansSerif", Font.PLAIN, 9, "Inter"));
         role.setForeground(MUTED);
         role.setAlignmentX(Component.LEFT_ALIGNMENT);
